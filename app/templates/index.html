@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}LinguaPath — Adaptive English tutoring{% endblock %}
+{% block content %}
+<section class="hero">
+  <p class="eyebrow">Adaptive English practice</p>
+  <h1>Build confidence, one conversation at a time.</h1>
+  <p>LinguaPath listens to how you write, gently adapts to your real level, and helps you improve without a placement test.</p>
+  <a class="button" href="{{ url_for('auth.register') }}">Choose your starting level</a>
+</section>
+{% endblock %}

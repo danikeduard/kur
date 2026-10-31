@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Tutor — LinguaPath{% endblock %}
+{% block content %}
+<section class="chat-shell"><h1>Your English tutor</h1><p>Send a message to begin practicing.</p><div id="messages" class="messages"></div>
+<form id="chat-form"><input id="chat-input" maxlength="4000" autocomplete="off" placeholder="Write in English..." required><button class="button" type="submit">Send</button></form></section>
+<script src="{{ url_for('static', filename='chat.js') }}"></script>
+{% endblock %}

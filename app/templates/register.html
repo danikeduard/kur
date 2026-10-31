@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Create account — LinguaPath{% endblock %}
+{% block content %}
+<section class="card"><h1>Choose your starting level</h1>
+<p>There is no test. Pick the description that feels closest; LinguaPath will keep learning from your messages.</p>
+<form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Email <input type="email" name="email" required autocomplete="email"></label>
+  <label>Password <input type="password" name="password" minlength="8" required autocomplete="new-password"></label>
+  <div class="level-grid">
+  {% for level in levels %}
+    <label class="level-card"><input type="radio" name="level" value="{{ level }}" required><strong>{{ level }}</strong><span>{{ {"A1":"Simple words and phrases","A2":"Everyday conversations","B1":"Independent communication","B2":"Detailed discussions","C1":"Fluent and flexible","C2":"Near-native precision"}[level] }}</span></label>
+  {% endfor %}
+  </div>
+  <button class="button" type="submit">Create account</button>
+</form></section>
+{% endblock %}

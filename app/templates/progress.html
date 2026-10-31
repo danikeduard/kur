@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Progress — LinguaPath{% endblock %}
+{% block content %}
+<section class="card"><h1>Your progress</h1><p>{{ total_messages }} total messages</p>
+<div class="badges">{% for skill, level in levels.items() %}<span class="badge">{{ skill }}: {{ level }}</span>{% endfor %}</div>
+<canvas id="rating-chart" aria-label="Rating history"></canvas>
+<h2>Topics to revisit</h2>{% if weak_topics %}<ul>{% for topic, count in weak_topics %}<li>{{ topic }} ({{ count }})</li>{% endfor %}</ul>{% else %}<p>No correction topics yet.</p>{% endif %}
+</section>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const events = {{ events|map(attribute="ts")|map("string")|list|tojson }};
+const values = {{ events|map(attribute="rating_after")|list|tojson }};
+new Chart(document.querySelector("#rating-chart"), {type:"line", data:{labels:events, datasets:[{label:"Rating events", data:values, borderColor:"#4f46e5"}]}});
+</script>
+{% endblock %}
