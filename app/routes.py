@@ -1,5 +1,6 @@
 """Public pages and chat API."""
 
+import base64
 import csv
 import hashlib
 import io
@@ -143,24 +144,42 @@ def list_conversations():
         Conversation.archived.is_(archived),
     )
     if query:
-        pattern = f"%{query}%"
+        escaped_query = query.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        pattern = f"%{escaped_query}%"
         statement = statement.where(
             db.or_(
-                Conversation.title.ilike(pattern),
+                Conversation.title.ilike(pattern, escape="!"),
                 db.exists(
                     db.select(Message.id).where(
                         Message.conversation_id == Conversation.id,
-                        Message.content.ilike(pattern),
+                        Message.content.ilike(pattern, escape="!"),
                     )
                 ),
             )
         )
     statement = statement.order_by(Conversation.pinned.desc(), Conversation.updated_at.desc(), Conversation.id.desc())
-    cursor = request.args.get("cursor", type=int)
+    cursor = request.args.get("cursor")
     if cursor:
-        statement = statement.where(Conversation.id < cursor)
+        try:
+            pinned_text, updated_text, id_text = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode().split("|", 2)
+            cursor_pinned = pinned_text == "1"
+            cursor_updated = datetime.fromisoformat(updated_text)
+            cursor_id = int(id_text)
+        except (ValueError, TypeError):
+            return jsonify(error="Invalid cursor."), 400
+        older_pin_group = Conversation.pinned.is_(False) if cursor_pinned else db.false()
+        statement = statement.where(db.or_(
+            older_pin_group,
+            db.and_(Conversation.pinned == cursor_pinned, Conversation.updated_at < cursor_updated),
+            db.and_(Conversation.pinned == cursor_pinned, Conversation.updated_at == cursor_updated,
+                    Conversation.id < cursor_id),
+        ))
     items = db.session.scalars(statement.limit(limit + 1)).all()
-    next_cursor = items[limit].id if len(items) > limit else None
+    next_cursor = None
+    if len(items) > limit:
+        last = items[limit - 1]
+        raw_cursor = f"{int(last.pinned)}|{last.updated_at.isoformat()}|{last.id}".encode()
+        next_cursor = base64.urlsafe_b64encode(raw_cursor).decode().rstrip("=")
     return jsonify(items=[_conversation_json(item) for item in items[:limit]], next_cursor=next_cursor)
 
 
@@ -249,7 +268,7 @@ def duplicate_conversation(conversation_id: int):
     db.session.add(copy)
     db.session.flush()
     source_messages = db.session.scalars(
-        db.select(Message).where(Message.conversation_id == source.id).order_by(Message.ts, Message.id)
+        db.select(Message).where(Message.conversation_id == source.id).order_by(Message.ts, Message.id).limit(300)
     ).all()
     for source_message in source_messages:
         db.session.add(
@@ -258,8 +277,8 @@ def duplicate_conversation(conversation_id: int):
                 conversation_id=copy.id,
                 role=source_message.role,
                 content=source_message.content,
-                is_valid_for_rating=source_message.is_valid_for_rating,
-                msg_index=source_message.msg_index,
+                is_valid_for_rating=False,
+                msg_index=None,
             )
         )
     db.session.commit()
@@ -584,6 +603,7 @@ def progress_api():
 
 @main_bp.get("/api/level-changes/<int:change_id>")
 @login_required
+@limiter.limit("10 per minute")
 def level_change(change_id: int):
     change = db.session.scalar(
         db.select(LevelChange).where(LevelChange.id == change_id, LevelChange.user_id == current_user.id)
@@ -616,31 +636,37 @@ def _deterministic_explanation(evidence):
 
 
 def _generate_explanation(change):
+    if change.skill == "overall":
+        return _deterministic_explanation(change.evidence)
     language = "English"
     started = datetime.now(UTC)
     try:
-        client = Groq(api_key=current_app.config["GROQ_API_KEY"])
-        response = client.chat.completions.create(
-            model=get_model("explain"), temperature=0.2, max_tokens=get_max_tokens("explain"),
-            response_format={"type": "json_object"},
-            messages=[{
+        client = create_client(current_app.config, groq_client=Groq)
+        from .providers import call_with_fallback
+
+        response, model, fallback_used = call_with_fallback(
+            client, get_model("explain"),
+            [item.strip() for item in current_app.config.get("LLM_MODEL_FALLBACKS", "").split(",") if item.strip()],
+            {"temperature": 0.2, "max_tokens": get_max_tokens("explain"),
+             "response_format": {"type": "json_object"}, "messages": [{
                 "role": "system",
                 "content": (
                     f"Explain this level change in {language}. Return JSON with summary (max 2 sentences), "
                     "reasons (kind errors|strengths|pattern, text, optional exact quote), and one-sentence caveat. "
                     "Use only the supplied evidence. Never promise exam results or certainty."
                 ),
-            }, {"role": "user", "content": json.dumps(change.evidence, ensure_ascii=False)}],
+            }, {"role": "user", "content": json.dumps(change.evidence, ensure_ascii=False)}]},
         )
         result = json.loads(response.choices[0].message.content)
         explanation = _sanitize_explanation(result, change.evidence)
         if explanation is not None:
             db.session.add(ApiMetric(user_id=current_user.id, kind="explain",
                                      latency_ms=(datetime.now(UTC) - started).total_seconds() * 1000,
-                                     provider=current_app.config["LLM_PROVIDER"], model=get_model("explain")))
+                                     provider=current_app.config["LLM_PROVIDER"], model=model,
+                                     fallback_used=fallback_used))
             return explanation
-    except (APIError, AttributeError, KeyError, TypeError, ValueError, json.JSONDecodeError, OSError):
-        pass
+    except Exception as error:  # noqa: BLE001 - provider SDK failures vary by provider/version.
+        current_app.logger.warning("Level explanation failed type=%s", type(error).__name__)
     db.session.add(ApiMetric(user_id=current_user.id, kind="explain",
                              latency_ms=(datetime.now(UTC) - started).total_seconds() * 1000,
                              provider=current_app.config["LLM_PROVIDER"], model=get_model("explain"),
@@ -783,8 +809,10 @@ def api_chat():
     )
     today = datetime.now(UTC).date()
     sent_today = db.session.scalar(
-        db.select(db.func.count(Message.id)).where(
-            Message.user_id == current_user.id, Message.role == "user", db.func.date(Message.ts) == today
+        db.select(db.func.count(ChatTurn.id)).where(
+            ChatTurn.user_id == current_user.id,
+            ChatTurn.status == "completed",
+            db.func.date(ChatTurn.started_at) == today,
         )
     )
     if sent_today >= current_user.daily_cap:
@@ -830,9 +858,15 @@ def api_chat():
     message.msg_index = valid_index if valid else None
     db.session.commit()
 
+    evaluation_result = None
     try:
         client = create_client(current_app.config, groq_client=Groq)
     except (RuntimeError, ValueError):
+        turn.status = "failed"
+        turn.tutor_status = "failed"
+        turn.error = "Tutor provider unavailable"
+        turn.completed_at = datetime.now(UTC)
+        db.session.commit()
         return jsonify(error="The configured AI provider is not available."), 503
     history_rows = db.session.scalars(
         db.select(Message)
@@ -863,6 +897,7 @@ def api_chat():
     }
     evaluator_context = {"current_levels": ratings, "recent_weak_topics": recent_errors}
     application = current_app._get_current_object()
+    tutor_started = datetime.now(UTC)
     with ThreadPoolExecutor(max_workers=3 if auto_title_pending else 2) as executor:
         evaluation_future = executor.submit(
             _run_evaluator,
@@ -921,12 +956,20 @@ def api_chat():
         try:
             tutor_result = tutor_future.result()
             reply = tutor_result["reply"]
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as error:
+        except Exception as error:  # noqa: BLE001 - Future.result() propagates provider-specific errors.
             current_app.logger.warning("Tutor provider failure type=%s detail=%s", type(error).__name__, str(error))
             turn.status = "failed"
             turn.tutor_status = "failed"
             turn.error = "Tutor provider unavailable"
             turn.completed_at = datetime.now(UTC)
+            if evaluation_result:
+                evaluation_result.metric.user_id = current_user.id
+                db.session.add(evaluation_result.metric)
+            db.session.add(ApiMetric(
+                user_id=current_user.id, kind="tutor",
+                latency_ms=(datetime.now(UTC) - tutor_started).total_seconds() * 1000,
+                provider=provider, model=model, status="failure",
+            ))
             try:
                 db.session.commit()
             except OperationalError as error:
@@ -940,7 +983,7 @@ def api_chat():
         if title_future:
             try:
                 generated_title = title_future.result()
-            except (APIError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as error:
+            except Exception as error:  # noqa: BLE001 - title generation is best-effort.
                 current_app.logger.warning("Conversation title generation failed type=%s", type(error).__name__)
                 generated_title = _fallback_conversation_title(content)
             if conversation.title_auto:

@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from groq import APIError, Groq
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,12 @@ def estimated_cost(config: Any, tokens_in: int | None, tokens_out: int | None) -
     return input_cost + output_cost
 
 
-def create_client(config: Any, provider: str | None = None, groq_client: Any = Groq) -> Any:
+def create_client(
+    config: Any,
+    provider: str | None = None,
+    groq_client: Any = Groq,
+    openai_client: Any = OpenAI,
+) -> Any:
     """Create a provider client without exposing provider secrets to users."""
     if config.get("DEMO_MODE"):
         return DemoClient()
@@ -95,5 +101,5 @@ def create_client(config: Any, provider: str | None = None, groq_client: Any = G
     if selected == "openai":
         if not config.get("OPENAI_API_KEY"):
             raise RuntimeError("OPENAI_API_KEY is not configured.")
-        return groq_client(api_key=config["OPENAI_API_KEY"], base_url=config["OPENAI_BASE_URL"])
+        return openai_client(api_key=config["OPENAI_API_KEY"], base_url=config["OPENAI_BASE_URL"])
     raise ValueError("Unsupported LLM provider.")

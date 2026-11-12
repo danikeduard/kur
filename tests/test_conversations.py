@@ -96,6 +96,59 @@ def test_conversation_can_be_duplicated_and_exported(client, app, monkeypatch):
     assert "# New chat" in exported.text
     assert "Hi there" in exported.text
 
+    with app.app_context():
+        from app.models import Message
+
+        cloned = db.session.scalars(
+            db.select(Message).where(Message.conversation_id == duplicate_id)
+        ).all()
+        assert all(not item.is_valid_for_rating and item.msg_index is None for item in cloned)
+
+
+def test_conversation_cursor_matches_pinned_updated_id_order(client, app):
+    assert register(client, "paging@example.com").status_code == 302
+    first = client.post("/api/conversations", json={}).json["conversation"]
+    second = client.post("/api/conversations", json={}).json["conversation"]
+    third = client.post("/api/conversations", json={}).json["conversation"]
+
+    with app.app_context():
+        from datetime import UTC, datetime, timedelta
+
+        from app.models import Conversation
+
+        now = datetime.now(UTC)
+        for conversation_id, pinned, offset in (
+            (first["id"], True, 0),
+            (second["id"], False, 0),
+            (third["id"], False, 1),
+        ):
+            db.session.execute(
+                db.update(Conversation).where(Conversation.id == conversation_id).values(
+                    pinned=pinned,
+                    updated_at=now - timedelta(minutes=offset),
+                )
+            )
+        db.session.commit()
+
+    page_one = client.get("/api/conversations?limit=1")
+    page_two = client.get(f"/api/conversations?limit=1&cursor={page_one.json['next_cursor']}")
+    page_three = client.get(f"/api/conversations?limit=1&cursor={page_two.json['next_cursor']}")
+    assert [page_one.json["items"][0]["id"], page_two.json["items"][0]["id"],
+            page_three.json["items"][0]["id"]] == [first["id"], second["id"], third["id"]]
+
+
+def test_conversation_search_treats_wildcards_literally(client, app):
+    assert register(client, "search-wildcards@example.com").status_code == 302
+    target = client.post("/api/conversations", json={}).json["conversation"]
+    other = client.post("/api/conversations", json={}).json["conversation"]
+    client.patch(f"/api/conversations/{target['id']}", json={"title": "100%_ready"})
+    client.patch(f"/api/conversations/{other['id']}", json={"title": "100Xaready"})
+
+    response = client.get("/api/conversations", query_string={"q": "%_"})
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json["items"]] == [target["id"]]
+
 
 def test_assistant_message_feedback_is_owned_and_updatable(client, app):
     assert register(client, "feedback@example.com").status_code == 302

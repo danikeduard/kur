@@ -3,7 +3,6 @@
 import sqlalchemy as sa
 from alembic import op
 
-
 revision = "20261112_expand_rating_scale"
 down_revision = "20261112_preferred_name"
 branch_labels = None

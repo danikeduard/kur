@@ -103,3 +103,58 @@ def test_tutor_failure_marks_turn_failed(client, app, monkeypatch):
         turn = db.session.scalar(db.select(ChatTurn))
         assert turn.status == "failed"
         assert turn.tutor_status == "failed"
+
+
+def test_failed_turn_does_not_consume_daily_message_limit(client, app, monkeypatch):
+    client.post("/register", data={"email": "retry@example.com", "password": "password123", "level": "B1"})
+    app.config["DAILY_MESSAGE_CAP"] = 1
+
+    class BrokenGroq:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+        def create(self, **kwargs):
+            raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr("app.routes.Groq", BrokenGroq)
+    failed = client.post("/api/chat", json={"content": "I enjoy learning English every day."})
+    assert failed.status_code == 503
+
+    monkeypatch.setattr("app.routes.Groq", FakeGroq)
+    succeeded = client.post("/api/chat", json={"content": "I enjoy learning English every day."})
+    assert succeeded.status_code == 200
+
+
+def test_evaluator_metric_is_saved_when_tutor_fails(client, app, monkeypatch):
+    client.post("/register", data={"email": "metrics@example.com", "password": "password123", "level": "B1"})
+
+    class TutorFailsAfterEvaluation(FakeGroq):
+        def create(self, **kwargs):
+            if kwargs.get("response_format", {}).get("type") == "json_object":
+                return super().create(**kwargs)
+            raise RuntimeError("tutor unavailable")
+
+    monkeypatch.setattr("app.routes.Groq", TutorFailsAfterEvaluation)
+    response = client.post("/api/chat", json={"content": "I enjoy learning English every day."})
+
+    assert response.status_code == 503
+    with app.app_context():
+        metrics = db.session.scalars(db.select(ApiMetric)).all()
+        assert any(metric.kind == "evaluator" and metric.status == "success" for metric in metrics)
+
+
+def test_client_creation_failure_marks_turn_failed(client, app, monkeypatch):
+    client.post("/register", data={"email": "client-failure@example.com", "password": "password123", "level": "B1"})
+
+    def fail_client_creation(*args, **kwargs):
+        raise RuntimeError("provider configuration missing")
+
+    monkeypatch.setattr("app.routes.create_client", fail_client_creation)
+
+    response = client.post("/api/chat", json={"content": "I enjoy learning English every day."})
+
+    assert response.status_code == 503
+    with app.app_context():
+        turn = db.session.scalar(db.select(ChatTurn))
+        assert turn.status == "failed"
+        assert turn.tutor_status == "failed"

@@ -3,7 +3,6 @@
 import sqlalchemy as sa
 from alembic import op
 
-
 revision = "20261112_persist_displayed_levels"
 down_revision = "20261112_server_configured_llm"
 branch_labels = None
