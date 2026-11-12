@@ -3,8 +3,8 @@
 The learner has one state per skill: `(R, P, last_outlier_sign)`. Ratings use
 an expanded 2.5x scale: CEFR centres are A1=1500, A2=2000, B1=2500, B2=3000,
 C1=3500, and C2=4000. Level boundaries are 1750, 2250, 2750, 3250, and 3750.
-The rating movement per message stays on the old scale so reaching a comparable
-level requires roughly 2.5x as much evidence. `RATING_MODE` selects `kalman`
+The Kalman gain and step limits use this same scale, so its maximum movement is
+120 rating points per accepted observation. `RATING_MODE` selects `kalman`
 (the default) or `baseline`.
 
 ## Formulas
@@ -39,7 +39,7 @@ Here `f=0.5` for the first suspicious outlier (`|R_gap| >= 1000` and
 `c_eff < 0.6`), otherwise `f=1`. A second suspicious observation in the same
 direction is confirmed and uses the full factor.
 
-**3.7** `R_new = R + clamp(K * R_gap / 2.5, -120, 120)`
+**3.7** `R_new = R + clamp(K * R_gap, -120, 120)`
 
 **3.8** `P_new = min(P0, (1-K)P + 5625)`
 
@@ -56,8 +56,8 @@ rating events. Overall ratings retain weights 0.4/0.3/0.3.
 Starting at C1 (`R=3500`, `P=390625`), an A2 observation (`R_llm=2000`) with
 14 words and confidence 0.8 has `c_eff=0.8`. With no errors, density does not
 lower the observation. The successive Kalman ratings are approximately
-`3380, 3260, 3178, 3125, 3087, 3059, 3037` (the first two are limited by the
-120-point step cap).
+`3380, 3260, 3140, 3020, 2900, 2780, 2673` (the first five movements are
+limited by the 120-point step cap).
 
 ## Rationale
 

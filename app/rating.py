@@ -90,7 +90,7 @@ def kalman_update(state: SkillState, r_obs: float, c_eff: float) -> tuple[SkillS
     factor = OUTLIER_FACTOR if suspicious and not confirmed else 1.0
     measurement_variance = SIGMA2 / c_eff**2
     gain = factor * state.p / (state.p + measurement_variance)
-    delta = max(-KALMAN_MAX_STEP, min(KALMAN_MAX_STEP, gain * gap / SCALE_FACTOR))
+    delta = max(-KALMAN_MAX_STEP, min(KALMAN_MAX_STEP, gain * gap))
     new_p = min(P0, (1 - gain) * state.p + Q)
     new_sign = sign if suspicious else 0
     outlier_flag = 0 if not suspicious else (2 if confirmed else 1)

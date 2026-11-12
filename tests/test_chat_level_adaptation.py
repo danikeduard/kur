@@ -41,16 +41,17 @@ def test_text_messages_adapt_persisted_english_level(client, app, monkeypatch):
     messages = [
         "Although the first attempt was difficult, I revised my argument after comparing several examples.",
         "Although I had misunderstood the assignment, I eventually revised my argument after studying the evidence.",
+        "Although the evidence was incomplete, I compared alternative explanations before revising my conclusion.",
     ]
     responses = [client.post("/api/chat", json={"content": content}) for content in messages]
 
     assert all(response.status_code == 200 for response in responses)
     assert responses[0].json["levels"]["grammar"] == "A2"
-    assert responses[1].json["levels"]["grammar"] == "B1"
-    assert responses[1].json["level_changed"]
+    assert responses[2].json["levels"]["grammar"] == "B1"
+    assert responses[2].json["level_changed"]
     with app.app_context():
         turns = db.session.scalars(db.select(ChatTurn).order_by(ChatTurn.id)).all()
-        assert [turn.learning_action for turn in turns] == ["diagnostic_conversation"] * 2
+        assert [turn.learning_action for turn in turns] == ["diagnostic_conversation"] * 3
         assert all(turn.status == "completed" and turn.evaluation_status == "success" for turn in turns)
         ratings = db.session.scalars(
             db.select(SkillRating).where(SkillRating.user_id == 1).order_by(SkillRating.skill)

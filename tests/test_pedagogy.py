@@ -10,9 +10,9 @@ def test_policy_starts_with_diagnostic_conversation(app):
         db.session.flush()
         db.session.add_all(
             [
-                SkillRating(user_id=user.id, skill="grammar", rating=1000),
-                SkillRating(user_id=user.id, skill="vocab", rating=900),
-                SkillRating(user_id=user.id, skill="writing", rating=1100),
+                    SkillRating(user_id=user.id, skill="grammar", rating=2500),
+                    SkillRating(user_id=user.id, skill="vocab", rating=2400),
+                    SkillRating(user_id=user.id, skill="writing", rating=2600),
             ]
         )
         db.session.commit()

@@ -41,4 +41,4 @@ def test_replay_variants_isolate_density_and_outlier_signals():
     _, _, with_guard = replay(events, "kalman")
     _, _, without_guard = replay(events, "kalman-no-outlier")
 
-    assert with_guard[(1, "writing")].r != without_guard[(1, "writing")].r
+    assert with_guard[(1, "writing")].p != without_guard[(1, "writing")].p

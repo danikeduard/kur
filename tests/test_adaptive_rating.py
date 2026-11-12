@@ -17,7 +17,7 @@ def test_kalman_worked_example():
     for _ in range(7):
         state, _ = kalman_update(state, level_to_rating("A2"), effective_confidence(0.8, 14))
         ratings.append(round(state.r))
-    assert ratings == [3380, 3260, 3178, 3125, 3087, 3059, 3037]
+    assert ratings == [3380, 3260, 3140, 3020, 2900, 2780, 2673]
 
 
 def test_length_confidence_and_skip():
@@ -44,7 +44,7 @@ def test_outlier_guard_confirms_same_direction():
     second, second_info = kalman_update(first, 4000, 0.5)
     assert first_info["outlier_flag"] == 1
     assert second_info["outlier_flag"] == 2
-    assert second.r - first.r > first.r - state.r
+    assert second_info["gain"] > first_info["gain"]
     reset, reset_info = kalman_update(second, 2500, 0.8)
     assert reset.last_outlier_sign == 0
     assert reset_info["outlier_flag"] == 0
