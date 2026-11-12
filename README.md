@@ -83,8 +83,8 @@ modern AI chat applications:
 - export a conversation as JSON or Markdown
 - rate assistant messages with optional feedback
 - organize conversations into folders and tags
-- persist tutor provider, model, reply length, emoji, and theme settings per account
-- use Groq or an OpenAI-compatible provider through the same provider boundary
+- persist reply length, emoji, and theme settings per account
+- configure the LLM provider and model on the server; users cannot choose them
 - capture provider, model, token, latency, cost, retry, and status telemetry
 - keep an auditable chat-turn record for each tutor request
 - adaptive tutor replies and CEFR skill tracking remain unchanged
@@ -96,15 +96,24 @@ and should be excluded from coursework statistics, for example:
 python scripts/metrics_report.py --model openai/gpt-oss-120b
 ```
 
+## Changing the model or provider
+
+Set `LLM_MODEL` and `LLM_PROVIDER` in `.env` for local development. Optional
+per-role model variables (`LLM_MODEL_EVALUATOR`, `LLM_MODEL_TITLE`, and
+`LLM_MODEL_EXPLAIN`) override the default model for those calls. Restart the
+server after changing these values. In production, set the same variables in
+the hosting provider's environment settings. Users cannot select a model or
+provider in the application.
+
 After deploying the new chat workspace features to an existing PostgreSQL
-database, run `python scripts/init_app_db.py` before starting the application.
-This is the release migration for the current prototype and creates missing
-tables/columns such as `app_user_settings`, `folder`, `tags`, and
-`conversation_id` without dropping existing data.
+database, run `python scripts/init_app_db.py` before starting the application
+to apply the checked-in Alembic migrations. The current migration removes the
+obsolete per-account model, provider, and language preferences while keeping
+conversation, rating, and progress data.
 
 ## Roadmap
 
-Reading exercises, listening/TTS, spaced repetition, model/provider selection,
-file uploads/RAG, web search, and LMS/Moodle integration remain future work.
+Reading exercises, listening/TTS, spaced repetition, file uploads/RAG, web
+search, and LMS/Moodle integration remain future work.
 These are intentionally separate from the current tutoring flow so they can be
 added with explicit privacy, storage, and cost controls.

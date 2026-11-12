@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.evaluator import Evaluation, evaluate_message
+from app.evaluator import Evaluation, evaluate_message, evaluator_response_format
 from app.extensions import db
 from app.learning import topic_recommendations, update_topic_mastery
 from app.models import ApiMetric, User
@@ -56,6 +56,33 @@ def test_evaluation_requires_exact_skill_set():
         Evaluation.model_validate(payload)
 
 
+def test_supported_groq_evaluator_uses_strict_complete_schema():
+    response_format = evaluator_response_format("groq", "openai/gpt-oss-120b")
+    assert response_format["type"] == "json_schema"
+    assert response_format["json_schema"]["strict"] is True
+
+    def assert_closed_and_required(node):
+        if node.get("type") == "object":
+            assert node["additionalProperties"] is False
+            assert set(node["required"]) == set(node["properties"])
+            for value in node["properties"].values():
+                assert_closed_and_required(value)
+        elif node.get("type") == "array":
+            assert_closed_and_required(node["items"])
+
+    schema = response_format["json_schema"]["schema"]
+    assert_closed_and_required(schema)
+    assert set(schema["properties"]["skills"]["properties"]) == {"grammar", "vocab", "writing"}
+
+
+def test_unsupported_evaluator_model_keeps_json_object_mode():
+    assert evaluator_response_format("groq", "custom-model")["type"] == "json_object"
+    assert evaluator_response_format("openai", "openai/gpt-oss-120b")["type"] == "json_object"
+    assert evaluator_response_format(
+        "groq", "openai/gpt-oss-120b", ["custom-fallback"]
+    )["type"] == "json_object"
+
+
 def test_evaluator_filters_untrusted_error_evidence(app):
     class FakeClient:
         class chat:
@@ -79,7 +106,7 @@ def test_evaluator_filters_untrusted_error_evidence(app):
     assert result.errors[0].topic == "articles"
 
 
-def test_evaluator_retries_invalid_json_and_records_failure(app):
+def test_evaluator_retries_invalid_json_and_records_failure(app, caplog):
     class BrokenClient:
         class chat:
             class completions:
@@ -105,6 +132,9 @@ def test_evaluator_retries_invalid_json_and_records_failure(app):
     assert BrokenClient.chat.completions.calls == 2
     assert metric.status == "failure"
     assert metric.retry_count == 1
+    assert "error_type=ValidationError" in caplog.text
+    assert "field': 'is_english'" in caplog.text
+    assert "I need some advice about my studies." not in caplog.text
 
 
 def test_topic_mastery_tracks_errors_and_strengths(app):

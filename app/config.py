@@ -42,13 +42,12 @@ class Config:
     EVALUATOR_RETRY_COUNT = 1
     GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
     RATING_MODE = os.environ.get("RATING_MODE", "kalman")
-    UI_LANGUAGE = os.environ.get("UI_LANGUAGE", "en")
     DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() == "true"
     LLM_COST_PER_1K_INPUT_USD = float(os.environ.get("LLM_COST_PER_1K_INPUT_USD", "0"))
     LLM_COST_PER_1K_OUTPUT_USD = float(os.environ.get("LLM_COST_PER_1K_OUTPUT_USD", "0"))
     LLM_MODEL_FALLBACKS = os.environ.get("LLM_MODEL_FALLBACKS", "")
     LLM_MAX_TOKENS_TUTOR = int(os.environ.get("LLM_MAX_TOKENS_TUTOR", "512"))
-    LLM_MAX_TOKENS_EVALUATOR = int(os.environ.get("LLM_MAX_TOKENS_EVALUATOR", "256"))
+    LLM_MAX_TOKENS_EVALUATOR = int(os.environ.get("LLM_MAX_TOKENS_EVALUATOR", "1024"))
     LLM_MAX_TOKENS_TITLE = int(os.environ.get("LLM_MAX_TOKENS_TITLE", "16"))
     LLM_MAX_TOKENS_EXPLAIN = int(os.environ.get("LLM_MAX_TOKENS_EXPLAIN", "256"))
     LLM_REASONING_EFFORT = os.environ.get("LLM_REASONING_EFFORT", "")

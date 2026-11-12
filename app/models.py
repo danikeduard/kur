@@ -52,12 +52,10 @@ class UserSettings(db.Model):
     __tablename__ = "app_user_settings"
 
     user_id = db.Column(db.Integer, db.ForeignKey("app_user.id", ondelete="CASCADE"), primary_key=True)
-    provider = db.Column(db.String(30), nullable=False, default="groq")
-    model = db.Column(db.String(120), nullable=False, default="")
     reply_length = db.Column(db.String(20), nullable=False, default="balanced")
     use_emojis = db.Column(db.Boolean, nullable=False, default=True)
     theme = db.Column(db.String(10), nullable=False, default="dark")
-    ui_language = db.Column(db.String(2), nullable=False, default="uk")
+    preferred_name = db.Column(db.String(40), nullable=False, default="")
     updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
 
@@ -67,6 +65,7 @@ class SkillRating(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"), primary_key=True)
     skill = db.Column(db.String(20), primary_key=True)
     rating = db.Column(db.Float, nullable=False)
+    display_level = db.Column(db.String(2), nullable=True)
     variance = db.Column(db.Float, nullable=False, default=62500.0)
     last_outlier_sign = db.Column(db.SmallInteger, nullable=False, default=0)
     n_updates = db.Column(db.Integer, default=0, nullable=False)
@@ -122,6 +121,9 @@ class ChatTurn(db.Model):
     assistant_message_id = db.Column(db.Integer, db.ForeignKey("app_message.id", ondelete="SET NULL"), nullable=True)
     provider = db.Column(db.String(30), nullable=False)
     model = db.Column(db.String(120), nullable=False)
+    learning_action = db.Column(db.String(40), nullable=True)
+    target_skill = db.Column(db.String(20), nullable=True)
+    target_topic = db.Column(db.String(80), nullable=True)
     status = db.Column(db.String(20), nullable=False, default="running")
     evaluation_status = db.Column(db.String(20), nullable=False, default="pending")
     tutor_status = db.Column(db.String(20), nullable=False, default="pending")
@@ -145,6 +147,7 @@ class RatingEvent(db.Model):
     rating_before = db.Column(db.Float, nullable=False)
     rating_after = db.Column(db.Float, nullable=False)
     observed_level = db.Column(db.String(2), nullable=False)
+    display_level = db.Column(db.String(2), nullable=True)
     confidence = db.Column(db.Float, nullable=False)
     weight = db.Column(db.Float, nullable=False)
     mode = db.Column(db.String(20), nullable=False, default="baseline")

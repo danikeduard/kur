@@ -6,7 +6,8 @@ are A1=600, A2=800, B1=1000, B2=1200, C1=1400, and C2=1600. The setting
 
 ## Formulas
 
-For a message with `W` whitespace-separated words and evaluator confidence
+For a message with `W` English word tokens (ASCII letters with an optional
+internal apostrophe, matching message validation) and evaluator confidence
 `c_llm`, effective confidence is:
 
 **3.1** `c_eff = c_llm * min(1, W / 12)`
@@ -20,7 +21,10 @@ produces `R_density`.
 **3.3** `R_obs = R_llm - 0.3 * max(0, R_llm - R_density)`
 
 The density signal is ignored below eight words and can only lower an
-observation. Kalman state starts with `P0 = 250^2`; process noise is `Q=900`.
+observation. Grammar and vocabulary density use only their matching error
+types. Writing is assessed for organization and cohesion, so grammar,
+vocabulary, and spelling errors do not also lower its density score. Kalman
+state starts with `P0 = 250^2`; process noise is `Q=900`.
 
 **3.4** `R_gap = R_obs - R`
 
@@ -41,8 +45,8 @@ for normal observations. Updates with `c_eff < 0.3` are skipped.
 
 The baseline remains `delta = clamp(0.12 * w * c * (R_llm - R), -80, 80)`,
 where `w=2` for the first five valid messages and `w=1` thereafter. Displayed
-labels retain 25-point hysteresis and overall ratings retain weights
-0.4/0.3/0.3.
+skill labels retain 25-point hysteresis across messages and are stored with
+rating events. Overall ratings retain weights 0.4/0.3/0.3.
 
 ## Worked example
 
@@ -72,6 +76,13 @@ The density table is heuristic, observations are not independent, and a
 learner's self-assessment can be wrong. Replay is non-causal because tutor
 behavior depended on the live model; small samples are not conclusive.
 Ratings are learning estimates, not exam predictions or certification.
+
+For evaluator calibration, `scripts/evaluate_cefr.py` accepts a UTF-8 JSONL
+corpus with human-reviewed labels. Each row contains `text` and
+`expected.grammar`, `expected.vocab`, and `expected.writing`, each set to a
+CEFR label. Run it with the configured provider and evaluator model; it
+reports exact accuracy and mean distance in CEFR bands. No calibration corpus
+is bundled because labels should be reviewed by a qualified English teacher.
 
 ## Topic mastery and pedagogical policy
 

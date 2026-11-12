@@ -3,9 +3,11 @@ from app.rating import (
     SkillState,
     blend_observation,
     density_rating,
+    error_count_for_skill,
     effective_confidence,
     kalman_update,
     level_to_rating,
+    word_count,
 )
 
 
@@ -46,3 +48,18 @@ def test_outlier_guard_confirms_same_direction():
     reset, reset_info = kalman_update(second, 1000, 0.8)
     assert reset.last_outlier_sign == 0
     assert reset_info["outlier_flag"] == 0
+
+
+def test_word_count_uses_english_word_tokens():
+    assert word_count("I've read 3 books, twice!") == 4
+
+
+def test_accuracy_errors_do_not_reduce_writing_rating_density():
+    errors = [
+        type("Error", (), {"type": "grammar"})(),
+        type("Error", (), {"type": "vocab"})(),
+        type("Error", (), {"type": "spelling"})(),
+    ]
+    assert error_count_for_skill(errors, "writing") == 0
+    assert error_count_for_skill(errors, "grammar") == 1
+    assert error_count_for_skill(errors, "vocab") == 1

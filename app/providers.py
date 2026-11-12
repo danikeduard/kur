@@ -9,7 +9,15 @@ logger = logging.getLogger(__name__)
 
 
 def call_with_fallback(client: Any, model: str, fallbacks: list[str], kwargs: dict[str, Any]) -> tuple[Any, str, bool]:
-    candidates = [model] + [item for item in fallbacks if item != model]
+    from config.llm import ROLES, fallback_models, get_model
+
+    configured_models = {get_model(role) for role in ROLES}
+    if model not in configured_models:
+        raise ValueError("LLM model was not resolved from server configuration.")
+    configured_fallbacks = fallback_models()
+    if fallbacks != configured_fallbacks:
+        raise ValueError("LLM fallbacks must come from server configuration.")
+    candidates = [model] + [item for item in configured_fallbacks if item != model]
     for index, candidate in enumerate(candidates):
         try:
             return client.chat.completions.create(model=candidate, **kwargs), candidate, index > 0

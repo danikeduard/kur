@@ -38,7 +38,15 @@ export function setupSidebar(state, renderChat) {
   }
   async function openConversationMenu(trigger, item) {
     const menu = document.createElement("div"); menu.className = "row-menu";
-    const actions = [["Rename", async () => { const title = window.prompt("Chat name", item.title); if (title?.trim()) await conversations.update(item.id, { title: title.trim() }); }], ["Organize", async () => { const folder = window.prompt("Folder (optional)", item.folder || ""); const tags = window.prompt("Tags, comma separated", (item.tags || []).join(", ")); await conversations.update(item.id, { folder: folder?.trim() || null, tags: (tags || "").split(",").map((tag) => tag.trim()).filter(Boolean) }); }], ["Duplicate", async () => { const data = await conversations.duplicate(item.id); await renderChat(data.conversation.id); }], [item.pinned ? "Unpin" : "Pin", () => conversations.update(item.id, { pinned: !item.pinned })], [item.archived ? "Restore" : "Archive", () => conversations.update(item.id, { archived: !item.archived })], ["Export JSON", () => { window.location.href = conversations.exportUrl(item.id); }], ["Delete", () => conversations.remove(item.id)]];
+    const actions = [
+      ["Rename", async () => {
+        const title = window.prompt("Chat name", item.title);
+        if (title?.trim()) await conversations.update(item.id, { title: title.trim() });
+      }],
+      [item.pinned ? "Unpin" : "Pin", () => conversations.update(item.id, { pinned: !item.pinned })],
+      [item.archived ? "Restore" : "Archive", () => conversations.update(item.id, { archived: !item.archived })],
+      ["Delete", () => conversations.remove(item.id)],
+    ];
     actions.forEach(([label, action]) => { const button = document.createElement("button"); button.type = "button"; button.textContent = label; if (label === "Delete") button.className = "menu-danger"; button.addEventListener("click", async () => { closeMenu(false); await action(); await load(); }); menu.append(button); });
     openMenu(trigger, menu, { scrollEl: list });
   }

@@ -108,7 +108,8 @@ def kalman_update(state: SkillState, r_obs: float, c_eff: float) -> tuple[SkillS
 
 
 def word_count(content: str) -> int:
-    return len(content.split())
+    """Count English words using the same token rule as message validation."""
+    return len(re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", content))
 
 
 def error_count_for_skill(errors: list, skill: str) -> int:
@@ -117,7 +118,9 @@ def error_count_for_skill(errors: list, skill: str) -> int:
         return sum(error.type in grammar_types for error in errors)
     if skill == "vocab":
         return sum(error.type == "vocab" for error in errors)
-    return len(errors)
+    # Writing is assessed for organization and cohesion, not language accuracy.
+    # The evaluator currently emits no structural writing-error category.
+    return 0
 
 
 def is_valid_message(content: str) -> bool:

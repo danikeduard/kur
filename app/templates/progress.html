@@ -12,7 +12,7 @@
   <div class="mobile-scrim" id="mobile-scrim" hidden></div>
   <aside class="app-sidebar" id="sidebar" aria-label="Conversation sidebar">
     <div class="sidebar-head">
-      <a class="app-logo" href="{{ url_for('main.index') }}" aria-label="LinguaPath home"><span class="logo-mark">L</span><span class="logo-name">LinguaPath</span></a>
+      <a class="app-logo" href="{{ url_for('main.chat') }}" aria-label="LinguaPath chat"><span class="logo-mark">L</span><span class="logo-name">LinguaPath</span></a>
       <button class="icon-button" id="sidebar-toggle" type="button" aria-label="Collapse sidebar">‹</button>
     </div>
     <a class="new-chat-button" href="{{ url_for('main.chat') }}"><span>＋</span> New chat</a>
@@ -34,9 +34,9 @@
         <div class="progress-toolbar">
           <div><p class="eyebrow">Learning dashboard</p><h1>Your progress</h1></div>
           <div class="range-control" role="group" aria-label="Chart range">
-            <button type="button" data-range="all" class="active">All</button>
+            <button type="button" data-range="all">All</button>
             <button type="button" data-range="30d">Last 30 days</button>
-            <button type="button" data-range="7d">Last 7 days</button>
+            <button type="button" data-range="7d" class="active">Last 7 days</button>
           </div>
         </div>
         <div id="progress-error" class="progress-error" hidden></div>

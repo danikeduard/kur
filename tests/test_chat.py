@@ -32,6 +32,16 @@ def test_levels_endpoint_returns_persisted_skill_levels(client):
     assert response.json["levels"] == {"grammar": "C1", "vocab": "C1", "writing": "C1"}
 
 
+def test_sidebar_logo_links_back_to_chat(client):
+    client.post("/register", data={"email": "logo@example.com", "password": "password123", "level": "B1"})
+
+    chat_page = client.get("/chat")
+    progress_page = client.get("/progress")
+
+    assert b'href="/chat" aria-label="LinguaPath chat"' in chat_page.data
+    assert b'href="/chat" aria-label="LinguaPath chat"' in progress_page.data
+
+
 def test_chat_messages_are_stored_in_selected_conversation(client, app, monkeypatch):
     client.post("/register", data={"email": "multi@example.com", "password": "password123", "level": "B1"})
     conversation = client.post("/api/conversations", json={}).json["conversation"]

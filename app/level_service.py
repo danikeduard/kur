@@ -8,6 +8,7 @@ from .rating import (
     initial_states,
     kalman_update,
     level_to_rating,
+    rating_to_level,
     update_rating,
     word_count,
 )
@@ -18,6 +19,8 @@ def ensure_rating_state(row: SkillRating, level: str) -> None:
         row.variance = initial_states(level)[row.skill].p
     if row.last_outlier_sign is None:
         row.last_outlier_sign = 0
+    if not row.display_level:
+        row.display_level = rating_to_level(row.rating)
 
 
 def update_skill(
@@ -68,7 +71,7 @@ def event_from_update(
     return RatingEvent(
         user_id=user_id, message_id=message_id, msg_index=msg_index, skill=skill,
         rating_before=update["before"], rating_after=update["after"],
-        observed_level=observed_level, confidence=update["c_llm"],
+        observed_level=observed_level, display_level=update["display_level"], confidence=update["c_llm"],
         weight=update["weight"], mode=update["mode"],
         word_count=update["word_count"], error_count=update["error_count"],
         r_llm=update["r_llm"], c_llm=update["c_llm"], c_eff=update["c_eff"],

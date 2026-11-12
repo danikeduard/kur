@@ -39,7 +39,7 @@ def register():
         db.session.flush()
         for skill, state in initial_states(level).items():
             db.session.add(SkillRating(
-                user_id=user.id, skill=skill, rating=state.r,
+                user_id=user.id, skill=skill, rating=state.r, display_level=level,
                 variance=state.p, last_outlier_sign=state.last_outlier_sign,
             ))
         db.session.commit()

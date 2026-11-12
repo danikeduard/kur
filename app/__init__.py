@@ -8,12 +8,11 @@ from flask import Flask
 from dotenv import dotenv_values, load_dotenv
 from groq import APIError
 
-from .config import Config
 from .extensions import csrf, db, limiter, login_manager, migrate
 from .i18n import install_i18n
 
 
-def create_app(config_class: type[Config] = Config) -> Flask:
+def create_app(config_class=None) -> Flask:
     env_path = Path(__file__).resolve().parents[1] / ".env"
     if not getattr(config_class, "TESTING", False):
         dotenv = dotenv_values(env_path)
@@ -21,6 +20,9 @@ def create_app(config_class: type[Config] = Config) -> Flask:
             if name in os.environ and dotenv.get(name) and os.environ[name] != dotenv[name]:
                 logging.getLogger(__name__).warning("OS environment %s differs from %s", name, env_path.resolve())
         load_dotenv(env_path, override=True)
+    from .config import Config
+
+    config_class = config_class or Config
     app = Flask(__name__)
     app.config.from_object(config_class)
     if not getattr(config_class, "TESTING", False):

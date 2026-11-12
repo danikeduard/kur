@@ -15,6 +15,8 @@ const form = document.querySelector("#chat-form");
 const send = form.querySelector(".send-button");
 const sidebar = document.querySelector("#sidebar");
 const title = document.querySelector("#conversation-title");
+const userDisplayName = document.querySelector("#user-display-name");
+const userAvatar = document.querySelector("#user-avatar");
 const maxInputLines = 8;
 
 function renderLevels(levels = {}) {
@@ -78,7 +80,16 @@ async function submitMessage(event) {
     const data = await api("/api/chat", { method: "POST", body: JSON.stringify({ content, conversation_id: state.conversationId }) });
     typing.body.replaceChildren();
     typing.body.innerHTML = renderMarkdown(data.reply);
-    renderLevels(data.levels);
+    if (data.conversation_title && title.firstChild) {
+      title.firstChild.textContent = `${data.conversation_title} `;
+    }
+    if (data.assessment_status === "failed") {
+      toast("Your reply was sent, but the evaluator failed. Your progress was not updated.");
+    } else if (data.assessment_status === "not_english") {
+      toast("Your reply was sent, but it was not assessed as English.");
+    } else if (data.assessment_status === "low_confidence") {
+      toast("Your reply was assessed, but there was not enough evidence to update your ratings.");
+    }
     data.level_changed?.forEach((change) => {
       const message = `Your ${change.skill} level is now ${change.label}`;
       const action = Number.isInteger(change.change_id)
@@ -149,7 +160,6 @@ function renderSuggestions() {
 const sidebarController = setupSidebar(state, loadConversation);
 renderSuggestions();
 sidebarController.load();
-api("/api/levels").then((data) => renderLevels(data.levels)).catch((error) => toast(error.message));
 if (state.conversationId) loadConversation(state.conversationId).catch((error) => toast(error.message));
 input.addEventListener("input", updateCounter);
 input.addEventListener("input", () => {
@@ -164,13 +174,11 @@ window.addEventListener("resize", () => autoResize(input));
 form.addEventListener("submit", submitMessage);
 updateCounter();
 document.querySelector("#new-chat").addEventListener("click", newChat);
-document.querySelector("#export-chat").addEventListener("click", () => { if (state.conversationId) window.location.href = conversations.exportUrl(state.conversationId, "markdown"); });
 document.querySelector("#sidebar-toggle").addEventListener("click", () => document.body.classList.toggle("sidebar-collapsed"));
 document.querySelector("#mobile-menu").addEventListener("click", () => document.body.classList.add("sidebar-open"));
 document.querySelector("#mobile-scrim").addEventListener("click", () => document.body.classList.remove("sidebar-open"));
 document.querySelector("#user-menu").addEventListener("click", () => openMenu(document.querySelector("#user-menu"), document.querySelector("#user-popover")));
 document.querySelector("#settings-open").addEventListener("click", () => { document.querySelector("#modal-backdrop").hidden = false; document.querySelector("#settings-modal").hidden = false; });
-document.querySelector("#help-open").addEventListener("click", () => { document.querySelector("#modal-backdrop").hidden = false; document.querySelector("#help-modal").hidden = false; });
 document.querySelectorAll(".modal-close").forEach((button) => button.addEventListener("click", () => { document.querySelector("#modal-backdrop").hidden = true; document.querySelectorAll("[role=dialog]").forEach((dialog) => { dialog.hidden = true; }); }));
 document.querySelector("#theme-select").addEventListener("change", (event) => setTheme(event.target.value));
 async function loadSettings() {
@@ -178,28 +186,33 @@ async function loadSettings() {
     const value = await settings.get();
     document.querySelector("#theme-select").value = value.theme;
     document.documentElement.lang = "en";
-    document.querySelector("#provider-select").value = value.provider;
-    document.querySelector("#model-input").value = value.model;
     document.querySelector("#reply-length").value = value.reply_length;
     document.querySelector("#emoji-toggle").checked = value.use_emojis;
+    document.querySelector("#preferred-name").value = value.preferred_name || "";
+    updatePreferredName(value.preferred_name);
     setTheme(value.theme);
   } catch (error) { toast(error.message); }
 }
-["theme-select", "provider-select", "model-input", "reply-length", "emoji-toggle"].forEach((id) => {
+["theme-select", "reply-length", "emoji-toggle", "preferred-name"].forEach((id) => {
   document.querySelector(`#${id}`).addEventListener("change", async () => {
     try {
       await settings.update({
         theme: document.querySelector("#theme-select").value,
-        provider: document.querySelector("#provider-select").value,
-        model: document.querySelector("#model-input").value,
         reply_length: document.querySelector("#reply-length").value,
         use_emojis: document.querySelector("#emoji-toggle").checked,
+        preferred_name: document.querySelector("#preferred-name").value,
       });
+      updatePreferredName(document.querySelector("#preferred-name").value);
       if (id === "theme-select") setTheme(document.querySelector("#theme-select").value);
       toast("Settings saved");
     } catch (error) { toast(error.message); }
   });
 });
+function updatePreferredName(value) {
+  const name = value?.trim() || "Learner";
+  userDisplayName.textContent = name;
+  userAvatar.textContent = name.charAt(0).toUpperCase();
+}
 document.querySelectorAll(".settings-tabs button").forEach((button) => button.addEventListener("click", () => { document.querySelectorAll(".settings-tabs button").forEach((item) => item.classList.toggle("active", item === button)); document.querySelectorAll(".settings-panel").forEach((panel) => { panel.hidden = panel.dataset.panel !== button.dataset.tab; }); }));
 title.addEventListener("click", async () => { if (!state.conversationId) return; const value = window.prompt("Chat name"); if (value?.trim()) { await conversations.update(state.conversationId, { title: value.trim() }); title.firstChild.textContent = `${value.trim()} `; sidebarController.load(); } });
 setupShortcuts({ search: document.querySelector("#conversation-search"), newChat, toggleSidebar: () => document.body.classList.toggle("sidebar-collapsed"), close: () => { document.body.classList.remove("sidebar-open"); document.querySelector("#modal-backdrop").hidden = true; } });

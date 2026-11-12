@@ -65,7 +65,7 @@ def select_learning_plan(db: Any, user_id: int) -> dict[str, str | None]:
     target_skill = TOPIC_SKILLS.get(target_topic) if target_topic else None
     if target_skill is None and weakest is not None:
         target_skill = weakest.skill
-    level = rating_to_level(weakest.rating) if weakest is not None else "B1"
+    level = (weakest.display_level or rating_to_level(weakest.rating)) if weakest is not None else "B1"
     return {
         "target_skill": target_skill,
         "target_topic": target_topic,

@@ -1,6 +1,5 @@
 """Small server-side translation catalog for the presentation UI."""
 
-from flask import current_app, request
 
 TRANSLATIONS = {
     "en": {
@@ -83,9 +82,6 @@ TRANSLATIONS = {
 def install_i18n(app):
     @app.context_processor
     def translations():
-        language = current_app.config.get("UI_LANGUAGE", "en")
-        if language not in TRANSLATIONS:
-            language = "en"
         language = "en"
         return {
             "ui_language": language,

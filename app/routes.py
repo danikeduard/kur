@@ -21,7 +21,8 @@ from flask import (
 from flask_login import current_user, login_required
 from groq import APIError, Groq
 from sqlalchemy.exc import OperationalError
-from sqlalchemy import inspect
+
+from config.llm import get_max_tokens, get_model, reasoning_options
 
 from .evaluator import evaluate_message
 from .extensions import db, limiter
@@ -44,8 +45,13 @@ from .models import (
 )
 from .pedagogy import select_learning_plan
 from .providers import create_client
-from .rating import is_valid_message, level_to_rating, overall_rating, rating_to_level
-from config.llm import get_max_tokens, get_model, reasoning_options
+from .rating import (
+    displayed_level,
+    is_valid_message,
+    level_to_rating,
+    overall_rating,
+    rating_to_level,
+)
 
 main_bp = Blueprint("main", __name__)
 
@@ -58,14 +64,19 @@ def index():
 @main_bp.get("/chat")
 @login_required
 def chat():
-    return render_template("chat.html", conversation_id=None)
+    return render_template("chat.html", conversation_id=None, preferred_name=_preferred_name())
 
 
 @main_bp.get("/chat/<int:conversation_id>")
 @login_required
 def conversation_page(conversation_id: int):
     conversation = _conversation_or_404(conversation_id)
-    return render_template("chat.html", conversation_id=conversation.id)
+    return render_template("chat.html", conversation_id=conversation.id, preferred_name=_preferred_name())
+
+
+def _preferred_name() -> str:
+    settings = db.session.get(UserSettings, current_user.id)
+    return settings.preferred_name.strip() if settings and settings.preferred_name.strip() else "Learner"
 
 
 def _conversation_or_404(conversation_id: int) -> Conversation:
@@ -306,12 +317,10 @@ def get_settings():
         db.session.add(settings)
         db.session.commit()
     return jsonify(
-        model=get_model("tutor"),
-        provider=current_app.config["LLM_PROVIDER"],
         reply_length=settings.reply_length,
         use_emojis=settings.use_emojis,
         theme=settings.theme,
-        ui_language="en",
+        preferred_name=settings.preferred_name,
     )
 
 
@@ -321,7 +330,7 @@ def get_levels():
     ratings = db.session.scalars(
         db.select(SkillRating).where(SkillRating.user_id == current_user.id)
     ).all()
-    return jsonify(levels={row.skill: rating_to_level(row.rating) for row in ratings})
+    return jsonify(levels={row.skill: row.display_level or rating_to_level(row.rating) for row in ratings})
 
 
 @main_bp.get("/api/mastery")
@@ -346,8 +355,8 @@ def mastery():
 @login_required
 def update_settings():
     payload = request.get_json(silent=True) or {}
-    requested_model = payload.get("model")
-    requested_provider = payload.get("provider")
+    if "model" in payload or "provider" in payload:
+        return jsonify(error="Model and provider are configured by the server."), 400
     settings = db.session.get(UserSettings, current_user.id)
     if settings is None:
         settings = UserSettings(user_id=current_user.id)
@@ -365,12 +374,15 @@ def update_settings():
         if not isinstance(payload["use_emojis"], bool):
             return jsonify(error="use_emojis must be a boolean."), 400
         settings.use_emojis = payload["use_emojis"]
+    if "preferred_name" in payload:
+        preferred_name = payload["preferred_name"]
+        if not isinstance(preferred_name, str) or len(preferred_name.strip()) > 40:
+            return jsonify(error="Name must be 40 characters or fewer."), 400
+        settings.preferred_name = preferred_name.strip()
     db.session.commit()
     return jsonify(
-        provider=requested_provider if isinstance(requested_provider, str) else current_app.config["LLM_PROVIDER"],
-        model=requested_model if isinstance(requested_model, str) else get_model("tutor"),
         reply_length=settings.reply_length, use_emojis=settings.use_emojis,
-        theme=settings.theme, ui_language="en",
+        theme=settings.theme, preferred_name=settings.preferred_name,
     )
 
 
@@ -433,6 +445,19 @@ def progress_api():
             Message.is_valid_for_rating.is_(True),
         )
     ) or 0
+    assessed_messages = db.session.scalar(
+        db.select(db.func.count(db.func.distinct(RatingEvent.message_id))).where(
+            RatingEvent.user_id == current_user.id,
+            RatingEvent.message_id.is_not(None),
+        )
+    ) or 0
+    assessment_failures = db.session.scalar(
+        db.select(db.func.count(ApiMetric.id)).where(
+            ApiMetric.user_id == current_user.id,
+            ApiMetric.kind == "evaluator",
+            ApiMetric.status == "failure",
+        )
+    ) or 0
     active_dates = db.session.execute(
         db.select(db.func.date(Message.ts)).where(Message.user_id == current_user.id)
     ).scalars().all()
@@ -455,24 +480,27 @@ def progress_api():
             "observed_level": event.observed_level,
             "confidence": event.confidence,
             "skipped": event.skipped,
-            "label": rating_to_level(event.rating_after),
+            "label": event.display_level or rating_to_level(event.rating_after),
             "change": event.rating_after - previous_rating,
         }
 
     skills = {}
     for skill in ("grammar", "vocab", "writing"):
         row = rating_by_skill.get(skill)
-        start = level_to_rating(current_user.self_level)
-        previous = start
+        initial_rating = level_to_rating(current_user.self_level)
+        skill_events = events_by_skill[skill]
+        if cutoff is not None and skill_events:
+            initial_rating = skill_events[0].rating_before
+        previous = initial_rating
         points = []
-        for event in events_by_skill[skill]:
+        for event in skill_events:
             points.append(point(event, previous, event.msg_index))
             previous = event.rating_after
-        current_rating = row.rating if row else start
+        current_rating = row.rating if row else initial_rating
         skills[skill] = {
-            "label": rating_to_level(current_rating),
+            "label": (row.display_level or rating_to_level(current_rating)) if row else rating_to_level(current_rating),
             "rating": current_rating,
-            "start_rating": start,
+            "start_rating": initial_rating,
             "points": points,
         }
 
@@ -505,6 +533,8 @@ def progress_api():
             "self_level": current_user.self_level,
             "overall": {"rating": overall, "label": rating_to_level(overall)},
             "valid_messages": valid_messages,
+            "assessed_messages": assessed_messages,
+            "assessment_failures": assessment_failures,
             "days_active": len({str(value)[:10] for value in active_dates}),
         },
         skills=skills,
@@ -513,7 +543,7 @@ def progress_api():
                 "id": change.id,
                 "ts": change.created_at.isoformat(),
                 "skill": change.skill,
-                "from": rating_to_level(change.rating_before),
+                "from": change.evidence.get("display_level_before", rating_to_level(change.rating_before)),
                 "to": change.label,
             }
             for change in changes
@@ -556,7 +586,6 @@ def _deterministic_explanation(evidence):
 
 
 def _generate_explanation(change):
-    settings = db.session.get(UserSettings, current_user.id)
     language = "English"
     started = datetime.now(UTC)
     try:
@@ -712,6 +741,16 @@ def api_chat():
         )
         if message_count >= 300:
             return jsonify(error="This conversation has reached the 300-message limit."), 409
+    auto_title_pending = bool(
+        conversation
+        and conversation.title_auto
+        and not db.session.scalar(
+            db.select(db.exists().where(
+                Message.conversation_id == conversation.id,
+                Message.role == "user",
+            ))
+        )
+    )
     today = datetime.now(UTC).date()
     sent_today = db.session.scalar(
         db.select(db.func.count(Message.id)).where(
@@ -753,7 +792,7 @@ def api_chat():
     try:
         client = create_client(current_app.config, groq_client=Groq)
     except (RuntimeError, ValueError):
-        return jsonify(error="The selected AI provider is not configured."), 503
+        return jsonify(error="The configured AI provider is not available."), 503
     history_rows = db.session.scalars(
         db.select(Message)
         .where(
@@ -766,8 +805,11 @@ def api_chat():
     ).all()
     history = [{"role": row.role, "content": row.content} for row in reversed(history_rows)]
     learning_plan = select_learning_plan(db, current_user.id)
+    turn.learning_action = learning_plan["action"]
+    turn.target_skill = learning_plan["target_skill"]
+    turn.target_topic = learning_plan["target_topic"]
     ratings = {
-        row.skill: rating_to_level(row.rating)
+        row.skill: row.display_level or rating_to_level(row.rating)
         for row in db.session.scalars(db.select(SkillRating).filter_by(user_id=current_user.id))
     }
     recent_errors = list(db.session.scalars(
@@ -776,12 +818,14 @@ def api_chat():
     settings_data = {
         "reply_length": settings.reply_length if settings else "balanced",
         "use_emojis": settings.use_emojis if settings else True,
-        "ui_language": "en",
+        "preferred_name": settings.preferred_name if settings else "",
     }
     evaluator_context = {"current_levels": ratings, "recent_weak_topics": recent_errors}
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    application = current_app._get_current_object()
+    with ThreadPoolExecutor(max_workers=3 if auto_title_pending else 2) as executor:
         evaluation_future = executor.submit(
             _run_evaluator,
+            application,
             client,
             get_model("evaluator"),
             content,
@@ -794,6 +838,7 @@ def api_chat():
         ) if valid else None
         tutor_future = executor.submit(
             _run_tutor,
+            application,
             client,
             model,
             content,
@@ -807,6 +852,16 @@ def api_chat():
             [item.strip() for item in current_app.config.get("LLM_MODEL_FALLBACKS", "").split(",") if item.strip()],
             reasoning_options(current_app.config),
         )
+        title_future = executor.submit(
+            _run_title,
+            application,
+            client,
+            content,
+            get_max_tokens("title"),
+            provider,
+            [item.strip() for item in current_app.config.get("LLM_MODEL_FALLBACKS", "").split(",") if item.strip()],
+            reasoning_options(current_app.config),
+        ) if auto_title_pending else None
         try:
             evaluation_result = evaluation_future.result() if evaluation_future else None
             evaluation = evaluation_result.evaluation if evaluation_result else None
@@ -814,7 +869,14 @@ def api_chat():
             evaluation = None
             turn.evaluation_status = "failed"
         else:
-            turn.evaluation_status = "success" if evaluation else "skipped"
+            if not valid:
+                turn.evaluation_status = "skipped"
+            elif evaluation is None:
+                turn.evaluation_status = "failed"
+            elif not evaluation.is_english:
+                turn.evaluation_status = "not_english"
+            else:
+                turn.evaluation_status = "success"
         try:
             tutor_result = tutor_future.result()
             reply = tutor_result["reply"]
@@ -834,6 +896,15 @@ def api_chat():
                 raise
             return jsonify(error="The tutor is temporarily unavailable. Please try again."), 503
         turn.tutor_status = "success"
+        if title_future:
+            try:
+                generated_title = title_future.result()
+            except (APIError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as error:
+                current_app.logger.warning("Conversation title generation failed type=%s", type(error).__name__)
+                generated_title = _fallback_conversation_title(content)
+            if conversation.title_auto:
+                conversation.title = generated_title
+                conversation.title_auto = False
     if evaluation_result:
         evaluation_result.metric.user_id = current_user.id
         db.session.add(evaluation_result.metric)
@@ -847,6 +918,7 @@ def api_chat():
     ))
 
     changed = []
+    accepted_skill_updates = 0
     before_overall = overall_rating({
         row.skill: row.rating for row in db.session.scalars(
             db.select(SkillRating).filter_by(user_id=current_user.id)
@@ -861,16 +933,20 @@ def api_chat():
             ).scalar_one_or_none()
             if rating is None:
                 continue
-            before_level = rating_to_level(rating.rating)
+            before_level = rating.display_level or rating_to_level(rating.rating)
             update = update_skill(
                 rating, observation.level, observation.confidence, valid_index,
                 content, evaluation.errors, current_app.config["RATING_MODE"],
             )
-            after_level = rating_to_level(update["after"])
+            accepted_skill_updates += not update["skipped"]
+            after_level = displayed_level(update["after"], before_level)
+            rating.display_level = after_level
+            update["display_level"] = after_level
             event = event_from_update(current_user.id, message.id, skill, observation.level, update, valid_index)
             db.session.add(event)
             if before_level != after_level:
                 evidence = _level_change_evidence(current_user.id, skill, content, evaluation, update)
+                evidence["display_level_before"] = before_level
                 change = LevelChange(
                     user_id=current_user.id, skill=skill, label=after_level,
                     rating_before=update["before"], rating_after=update["after"],
@@ -883,6 +959,8 @@ def api_chat():
             db.session.add(ErrorLog(user_id=current_user.id, message_id=message.id, topic=error.topic,
                                     error_type=error.type, original=error.original, corrected=error.corrected))
         update_topic_mastery(db, current_user.id, evaluation.errors, evaluation.strengths)
+        if accepted_skill_updates == 0:
+            turn.evaluation_status = "low_confidence"
         after_overall = overall_rating({
             row.skill: row.rating for row in db.session.scalars(
                 db.select(SkillRating).filter_by(user_id=current_user.id)
@@ -919,10 +997,16 @@ def api_chat():
             current_app.logger.warning("SQLite write lock while completing chat request")
             return jsonify(error="Please try again."), 503
         raise
-    levels = {row.skill: rating_to_level(row.rating) for row in db.session.scalars(
+    levels = {row.skill: row.display_level or rating_to_level(row.rating) for row in db.session.scalars(
         db.select(SkillRating).filter_by(user_id=current_user.id)
     )}
-    return jsonify(reply=reply, levels=levels, level_changed=changed)
+    return jsonify(
+        reply=reply,
+        conversation_title=conversation.title if conversation else None,
+        levels=levels,
+        level_changed=changed,
+        assessment_status=turn.evaluation_status,
+    )
 
 
 def _level_change_evidence(user_id, skill, content, evaluation, update):
@@ -966,10 +1050,46 @@ def _level_change_evidence(user_id, skill, content, evaluation, update):
     }
 
 
-def _run_evaluator(client, model, content, context=None, max_tokens=256, provider="unknown", config=None, fallbacks=None, reasoning=None):
-    return evaluate_message(client, model, content, None, None, context, provider, config, max_tokens=max_tokens, fallbacks=fallbacks, reasoning=reasoning)
+def _run_evaluator(app, client, model, content, context=None, max_tokens=256, provider="unknown", config=None, fallbacks=None, reasoning=None):
+    with app.app_context():
+        return evaluate_message(client, model, content, None, None, context, provider, config, max_tokens=max_tokens, fallbacks=fallbacks, reasoning=reasoning)
 
 
-def _run_tutor(client, model, content, history, ratings, errors, settings, plan, max_tokens, provider="unknown", fallbacks=None, reasoning=None):
+def _run_tutor(app, client, model, content, history, ratings, errors, settings, plan, max_tokens, provider="unknown", fallbacks=None, reasoning=None):
     from .tutor import tutor_reply
-    return tutor_reply(client, model, content, history, ratings, errors, settings, plan, max_tokens, provider, fallbacks, reasoning)
+    with app.app_context():
+        return tutor_reply(client, model, content, history, ratings, errors, settings, plan, max_tokens, provider, fallbacks, reasoning)
+
+
+def _fallback_conversation_title(content: str) -> str:
+    words = " ".join(content.split())
+    if len(words) > 48:
+        words = words[:48].rsplit(" ", 1)[0].rstrip(".,!?;:")
+    return words[:200] or "New chat"
+
+
+def _run_title(app, client, content, max_tokens, provider="unknown", fallbacks=None, reasoning=None):
+    from .providers import call_with_fallback
+
+    with app.app_context():
+        model = get_model("title")
+        response, _, _ = call_with_fallback(
+            client,
+            model,
+            fallbacks or [],
+            {
+                "temperature": 0.2,
+                "max_tokens": max_tokens,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "Create a concise, natural title for this English-learning chat based on the learner's first message. Use 2-6 words, title case, no quotes, and return only the title.",
+                    },
+                    {"role": "user", "content": content},
+                ],
+                **(reasoning or {}),
+            },
+        )
+        title = (response.choices[0].message.content or "").strip().strip("\"'`*# ")
+        title = " ".join(title.split())[:200].rstrip(".,!?;:")
+        return title or _fallback_conversation_title(content)

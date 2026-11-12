@@ -7,6 +7,9 @@ const colors = { grammar: "#55b7c8", vocab: "#8aa7ff", writing: "#e5a56b" };
 const charts = new Map();
 const state = { query: "", archived: false };
 const chartArea = document.querySelector("#charts");
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
+})[char]);
 
 function levelBand(value) {
   if (value < 700) return "A1";
@@ -42,10 +45,10 @@ function renderSummary(data) {
   const summary = document.querySelector("#summary");
   summary.className = "progress-summary";
   summary.innerHTML = `
-    <article class="progress-stat"><small>Valid messages</small><strong>${data.user.valid_messages}</strong></article>
+    <article class="progress-stat"><small>Verified messages</small><strong>${data.user.assessed_messages}</strong><span>Past evaluator errors: ${data.user.assessment_failures}</span></article>
     <article class="progress-stat"><small>Overall level</small><strong>${data.user.overall.label}</strong><span>${Math.round(data.user.overall.rating)} rating</span></article>
     <article class="progress-stat"><small>Self-declared</small><strong>${data.user.self_level} → ${data.user.overall.label}</strong><span>Active days: ${data.user.days_active}</span></article>
-    <div class="progress-skill-chips">${skills.map((skill) => `<span class="level-chip" title="${skill} rating ${Math.round(data.skills[skill].rating)}">${skill[0].toUpperCase() + skill.slice(1)} ${data.skills[skill].label}</span>`).join("")}</div>`;
+  `;
 }
 
 function chartCard(skill, data) {
@@ -58,7 +61,7 @@ function chartCard(skill, data) {
   const highBand = Math.min(2000, Math.max(lowBand + 600, Math.ceil(Math.max(first, last) / 200) * 200 + 200));
   const change = Math.round(last - first);
   card.innerHTML = `<div class="chart-card-head"><div><h2>${skill[0].toUpperCase() + skill.slice(1)}</h2><small>${data.label} · ${change >= 0 ? "+" : ""}${change} points</small></div><span class="level-badge">${data.label}</span></div>`;
-  if (points.length < 2) {
+  if (points.length === 0) {
     card.insertAdjacentHTML("beforeend", `<p class="chart-empty">Send a few more messages in English to see your trend.</p>`);
     return card;
   }
@@ -66,10 +69,6 @@ function chartCard(skill, data) {
   canvas.setAttribute("role", "img");
   canvas.setAttribute("aria-label", `${skill}: from ${levelBand(first)} to ${levelBand(last)} over ${points.length} messages`);
   card.append(canvas);
-  const table = document.createElement("details");
-  table.className = "chart-data";
-  table.innerHTML = `<summary>Show data</summary><ul>${points.map((point) => `<li>Message ${point.n}: ${Math.round(point.rating)} (${point.label})</li>`).join("")}</ul>`;
-  card.append(table);
   charts.set(skill, new Chart(canvas, {
     type: "line",
     plugins: [bandPlugin],
@@ -99,11 +98,18 @@ function chartCard(skill, data) {
       },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: (context) => {
-          const point = context.raw.point;
-          if (!point) return `Start: ${Math.round(context.raw.y)}`;
-          return `Message ${point.n}: ${Math.round(point.rating)} (${point.label}), observed ${point.observed_level}, confidence ${Math.round(point.confidence * 100)}%, ${point.change >= 0 ? "+" : ""}${Math.round(point.change)} points`;
-        }, title: (items) => items[0]?.raw.point ? new Date(items[0].raw.point.ts).toLocaleString() : "Starting rating" } },
+        tooltip: {
+          filter: (item) => Boolean(item.raw.point),
+          callbacks: {
+            label: (context) => {
+              const change = Math.round(context.raw.point.change);
+              return `${change > 0 ? "+" : ""}${change} rating points`;
+            },
+            title: (items) => items[0]?.raw.point
+              ? new Date(items[0].raw.point.ts).toLocaleDateString()
+              : "",
+          },
+        },
       },
     },
   }));
@@ -118,11 +124,11 @@ function renderData(data) {
   const changes = document.querySelector("#level-changes");
   changes.innerHTML = data.level_changes.length ? data.level_changes.map((change) => `<button class="timeline-row" data-change="${change.id}"><span>${new Date(change.ts).toLocaleDateString()}</span><strong>${change.skill}: ${change.from} → ${change.to}</strong><span>Why?</span></button>`).join("") : "<p class='muted'>No level changes yet.</p>";
   const topics = document.querySelector("#weak-topics");
-  topics.innerHTML = data.weak_topics.length ? data.weak_topics.map((topic) => `<div class="topic-row"><strong>${topic.topic}</strong><span>${topic.count} recent errors</span><small>${topic.example_original} → ${topic.example_corrected}</small></div>`).join("") : "<p class='muted'>No correction topics yet.</p>";
+  topics.innerHTML = data.weak_topics.length ? data.weak_topics.map((topic) => `<div class="topic-row"><strong>${escapeHtml(topic.topic)}</strong><span>${topic.count} recent errors</span><small>${escapeHtml(topic.example_original)} → ${escapeHtml(topic.example_corrected)}</small></div>`).join("") : "<p class='muted'>No correction topics yet.</p>";
   changes.querySelectorAll("[data-change]").forEach((button) => button.addEventListener("click", () => showChange(button.dataset.change)));
 }
 
-async function load(range = "all") {
+async function load(range = "7d") {
   const error = document.querySelector("#progress-error");
   error.hidden = true;
   try { renderData(await api(`/api/progress?range=${range}`)); }
@@ -149,4 +155,4 @@ document.querySelector("#progress-modal-close").addEventListener("click", () => 
 document.querySelector("#sidebar-toggle").addEventListener("click", () => document.body.classList.toggle("sidebar-collapsed"));
 document.querySelector("#mobile-menu").addEventListener("click", () => document.body.classList.add("sidebar-open"));
 document.querySelector("#mobile-scrim").addEventListener("click", () => document.body.classList.remove("sidebar-open"));
-load();
+load("7d");

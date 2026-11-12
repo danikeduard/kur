@@ -128,20 +128,22 @@ def test_settings_and_conversation_organization_are_persisted(client):
     assert register(client, "settings@example.com").status_code == 302
     settings = client.get("/api/settings")
     assert settings.status_code == 200
-    assert settings.json["provider"] == "groq"
+    assert "provider" not in settings.json
+    assert "model" not in settings.json
+
+    rejected = client.patch(
+        "/api/settings",
+        json={"provider": "openai", "model": "gpt-4o-mini"},
+    )
+    assert rejected.status_code == 400
 
     updated = client.patch(
         "/api/settings",
-        json={
-            "provider": "openai",
-            "model": "gpt-4o-mini",
-            "reply_length": "concise",
-            "use_emojis": False,
-            "theme": "light",
-        },
+        json={"reply_length": "concise", "use_emojis": False, "theme": "light"},
     )
     assert updated.status_code == 200
-    assert updated.json["model"] == "gpt-4o-mini"
+    assert "provider" not in updated.json
+    assert "model" not in updated.json
     conversation = client.post("/api/conversations", json={}).json["conversation"]
     organized = client.patch(
         f"/api/conversations/{conversation['id']}",
