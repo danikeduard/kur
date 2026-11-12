@@ -1,119 +1,153 @@
 # LinguaPath
 
-LinguaPath is an adaptive AI English tutor prototype for coursework in
-economic cybernetics. Learners choose a self-assessed CEFR level; the system
-then estimates grammar, vocabulary, and writing levels from valid chat
-messages. The first five valid messages receive double update weight.
+**An adaptive AI English tutor with CEFR progress tracking.** LinguaPath is a
+Flask web application that combines conversational practice with structured
+grammar, vocabulary, and writing assessments. It is a student project and a
+prototype for exploring adaptive language learning.
 
-## Local setup
+## What you can demonstrate
+
+- Create an account and choose a starting CEFR level (A1–C2).
+- Practice English in a chat workspace with saved conversations.
+- Review ratings for grammar, vocabulary, and writing on the progress page.
+- See rating history and evidence behind level changes.
+- Search, pin, archive, duplicate, organize, and export conversations.
+- Configure reply length, emoji use, theme, and preferred name.
+- Run the app in a deterministic demo mode without sending prompts to an LLM.
+
+## Quick start: local demo
+
+Requires Python 3.12 and PowerShell on Windows. The commands below use the
+project's virtual environment and the SQLite database created locally.
 
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 Copy-Item .env.example .env
+```
+
+Edit `.env` for a local HTTP demo:
+
+```dotenv
+SECRET_KEY=replace-this-with-a-long-random-local-secret
+APP_ENV=development
+SESSION_COOKIE_SECURE=false
+DEMO_MODE=true
+```
+
+Apply the database migrations and start the server:
+
+```powershell
 flask --app wsgi db upgrade
 flask --app wsgi run
 ```
 
-Set a real `SECRET_KEY` and `GROQ_API_KEY` in `.env`. Leave `DATABASE_URL`
-commented out for local development: the app stores SQLite data at
-`instance/linguapath.db`. The local database enables foreign keys and WAL
-mode, so conversation deletion preserves rating and error history correctly.
+Open <http://127.0.0.1:5000>, create a demo account, and try the chat and
+progress pages. Demo mode returns a fixed example tutor response and assessment;
+it does not call Groq or OpenAI. Use it to demonstrate the user flow, not as
+evidence of tutor quality or rating accuracy.
 
-For a presentation without an external API key, set `DEMO_MODE=true`.
+The default database is `instance/linguapath.db`. The database and `.env` are
+local-only and are excluded from Git.
 
-Reset the local database when a clean development database is needed:
+## Run with a live LLM
 
-```powershell
-python scripts/reset_local_db.py --yes
+Set `DEMO_MODE=false`, then configure one provider in `.env`:
+
+```dotenv
+LLM_PROVIDER=groq
+GROQ_API_KEY=your-groq-api-key
+LLM_MODEL=your-supported-model-id
 ```
 
-Back up the local database with SQLite's online backup API:
+Or use the OpenAI API:
 
-```powershell
-python scripts/backup_local_db.py
+```dotenv
+LLM_PROVIDER=openai
+OPENAI_API_KEY=your-openai-api-key
+OPENAI_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=your-supported-model-id
 ```
 
-To use PostgreSQL later, install the optional driver and set `DATABASE_URL` in
-`.env`; no application code changes are required:
+Do not commit credentials. The selected provider and model are configured by
+the server; users cannot change them from account settings. Optional
+`LLM_MODEL_EVALUATOR`, `LLM_MODEL_TITLE`, and `LLM_MODEL_EXPLAIN` values can
+select models for individual tasks. Restart the server after changing provider
+configuration.
+
+## Database changes
+
+Use Alembic migrations for schema changes:
 
 ```powershell
-pip install psycopg2-binary
-DATABASE_URL=postgresql://user:password@host:5432/database
-```
-
-Schema workflow:
-
-```powershell
-flask --app wsgi db migrate -m "describe the model change"
-# review the generated migration
+flask --app wsgi db migrate -m "describe the change"
+# Review the generated migration before applying it.
 flask --app wsgi db upgrade
 ```
 
-The application does not call `db.create_all()` for schema changes.
-
-## Project map
-
-- `app/rating.py`: pure level model and validity rules
-- `app/evaluator.py`, `app/tutor.py`: validated LLM integrations
-- `app/routes.py`: authentication-adjacent pages and chat/progress APIs
-- `scripts/`: metrics, convergence, and SUS reports using logged data
-- `docs/`: architecture, formal level model, and deployment guide
-- `docs/user_study.md`: reproducible replay and usability-study protocol
-
-To compare the baseline and adaptive rating models on logged observations:
+For an existing database, apply pending migrations with `flask --app wsgi db
+upgrade`. To make a local backup or reset a disposable development database:
 
 ```powershell
-python scripts/replay_models.py
+python scripts/backup_local_db.py
+python scripts/reset_local_db.py --yes
 ```
 
-The replay reports label changes, mean absolute rating movement, and messages
-needed to approach the final estimate. It is intentionally non-causal because
-live tutor responses influenced the original messages; use it for model
-comparison, not as an evaluation certificate.
+**Reset deletes the local SQLite database.** Do not use it with a database you
+need to keep. PostgreSQL support is available with the optional `psycopg2`
+driver and a `DATABASE_URL`; production setup is described in
+[`docs/deploy.md`](docs/deploy.md).
 
-## Chat workspace features
+## How the adaptive rating works
 
-The tutor workspace now supports the core interaction patterns expected from
-modern AI chat applications:
+The evaluator returns separate CEFR observations for grammar, vocabulary, and
+writing. Messages must contain enough English text to be eligible for a rating
+update. The adaptive mode accounts for message length and confidence, limits
+large single-step changes, and keeps displayed CEFR labels stable near level
+boundaries. The first five valid messages have double weight in baseline mode.
 
-- searchable, pinnable, archivable, and paginated conversations
-- duplicate a conversation to safely branch a practice session
-- export a conversation as JSON or Markdown
-- rate assistant messages with optional feedback
-- organize conversations into folders and tags
-- persist reply length, emoji, and theme settings per account
-- configure the LLM provider and model on the server; users cannot choose them
-- capture provider, model, token, latency, cost, retry, and status telemetry
-- keep an auditable chat-turn record for each tutor request
-- adaptive tutor replies and CEFR skill tracking remain unchanged
+The model, constants, worked example, and limitations are documented in
+[`docs/level_model.md`](docs/level_model.md). Ratings are learning estimates,
+not certified CEFR results. LLM assessments can be wrong; short or unusual
+messages provide limited evidence.
 
-API metrics are server-configured. Rows with `model='allam-2-7b'` are historical
-and should be excluded from coursework statistics, for example:
+## Project structure
+
+| Path | Responsibility |
+| --- | --- |
+| [`app/`](app) | Flask application, routes, authentication, models, tutor, evaluator, and providers |
+| [`app/rating.py`](app/rating.py) | Pure CEFR rating and message-validity logic |
+| [`app/templates/`](app/templates) | Server-rendered pages |
+| [`app/static/`](app/static) | Chat client and visual styles |
+| [`migrations/`](migrations) | Alembic schema migrations |
+| [`scripts/`](scripts) | Database utilities, metrics, evaluation, and model replay |
+| [`tests/`](tests) | Automated tests for routes, ratings, migrations, and providers |
+| [`docs/`](docs) | Architecture, deployment, rating model, and study notes |
+
+## Validation
+
+Run the linter and test suite before presenting changes:
 
 ```powershell
-python scripts/metrics_report.py --model openai/gpt-oss-120b
+ruff check .
+python -m pytest -q
 ```
 
-## Changing the model or provider
+The app also exposes a lightweight health endpoint at `/healthz`.
 
-Set `LLM_MODEL` and `LLM_PROVIDER` in `.env` for local development. Optional
-per-role model variables (`LLM_MODEL_EVALUATOR`, `LLM_MODEL_TITLE`, and
-`LLM_MODEL_EXPLAIN`) override the default model for those calls. Restart the
-server after changing these values. In production, set the same variables in
-the hosting provider's environment settings. Users cannot select a model or
-provider in the application.
+## Project limitations
 
-After deploying the new chat workspace features to an existing PostgreSQL
-database, run `python scripts/init_app_db.py` before starting the application
-to apply the checked-in Alembic migrations. The current migration removes the
-obsolete per-account model, provider, and language preferences while keeping
-conversation, rating, and progress data.
+- Demo mode is deterministic and does not measure real model performance.
+- Live assessment depends on the configured third-party LLM provider.
+- The rating model and pedagogy are prototypes and need evaluation against
+  teacher-reviewed examples and user-study data.
+- No research findings or user-study results are included unless collected and
+  reviewed separately.
 
-## Roadmap
+## Further reading
 
-Reading exercises, listening/TTS, spaced repetition, file uploads/RAG, web
-search, and LMS/Moodle integration remain future work.
-These are intentionally separate from the current tutoring flow so they can be
-added with explicit privacy, storage, and cost controls.
+- [Architecture](docs/architecture.md)
+- [Deployment](docs/deploy.md)
+- [Adaptive rating model](docs/level_model.md)
+- [User-study protocol](docs/user_study.md)
