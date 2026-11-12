@@ -33,14 +33,56 @@ class User(UserMixin, db.Model):
         return self.daily_cap_override or current_app.config["DAILY_MESSAGE_CAP"]
 
 
+class Conversation(db.Model):
+    __tablename__ = "app_conversation"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = db.Column(db.String(200), nullable=False, default="New chat")
+    title_auto = db.Column(db.Boolean, nullable=False, default=True)
+    pinned = db.Column(db.Boolean, nullable=False, default=False)
+    archived = db.Column(db.Boolean, nullable=False, default=False)
+    folder = db.Column(db.String(80), nullable=True)
+    tags = db.Column(db.JSON, nullable=False, default=list)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class UserSettings(db.Model):
+    __tablename__ = "app_user_settings"
+
+    user_id = db.Column(db.Integer, db.ForeignKey("app_user.id", ondelete="CASCADE"), primary_key=True)
+    provider = db.Column(db.String(30), nullable=False, default="groq")
+    model = db.Column(db.String(120), nullable=False, default="")
+    reply_length = db.Column(db.String(20), nullable=False, default="balanced")
+    use_emojis = db.Column(db.Boolean, nullable=False, default=True)
+    theme = db.Column(db.String(10), nullable=False, default="dark")
+    ui_language = db.Column(db.String(2), nullable=False, default="uk")
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class SkillRating(db.Model):
     __tablename__ = "app_skill_rating"
 
     user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"), primary_key=True)
     skill = db.Column(db.String(20), primary_key=True)
     rating = db.Column(db.Float, nullable=False)
+    variance = db.Column(db.Float, nullable=False, default=62500.0)
+    last_outlier_sign = db.Column(db.SmallInteger, nullable=False, default=0)
     n_updates = db.Column(db.Integer, default=0, nullable=False)
     updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class TopicMastery(db.Model):
+    __tablename__ = "app_topic_mastery"
+
+    user_id = db.Column(db.Integer, db.ForeignKey("app_user.id", ondelete="CASCADE"), primary_key=True)
+    topic = db.Column(db.String(80), primary_key=True)
+    mastery = db.Column(db.Float, nullable=False, default=0.5)
+    uncertainty = db.Column(db.Float, nullable=False, default=1.0)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    errors = db.Column(db.Integer, nullable=False, default=0)
+    last_seen_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 class Message(db.Model):
@@ -48,6 +90,9 @@ class Message(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"), nullable=False, index=True)
+    conversation_id = db.Column(
+        db.Integer, db.ForeignKey("app_conversation.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     role = db.Column(db.String(10), nullable=False)
     content = db.Column(db.Text, nullable=False)
     ts = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
@@ -55,19 +100,79 @@ class Message(db.Model):
     msg_index = db.Column(db.Integer, nullable=True)
 
 
+class MessageFeedback(db.Model):
+    __tablename__ = "app_message_feedback"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False, index=True)
+    message_id = db.Column(db.Integer, db.ForeignKey("app_message.id", ondelete="CASCADE"), nullable=False, unique=True)
+    rating = db.Column(db.String(10), nullable=False)
+    comment = db.Column(db.String(1000), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class ChatTurn(db.Model):
+    __tablename__ = "app_chat_turn"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey("app_conversation.id", ondelete="CASCADE"), nullable=True)
+    user_message_id = db.Column(db.Integer, db.ForeignKey("app_message.id", ondelete="CASCADE"), nullable=False)
+    assistant_message_id = db.Column(db.Integer, db.ForeignKey("app_message.id", ondelete="SET NULL"), nullable=True)
+    provider = db.Column(db.String(30), nullable=False)
+    model = db.Column(db.String(120), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="running")
+    evaluation_status = db.Column(db.String(20), nullable=False, default="pending")
+    tutor_status = db.Column(db.String(20), nullable=False, default="pending")
+    error = db.Column(db.String(500), nullable=True)
+    started_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    completed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+
 class RatingEvent(db.Model):
     __tablename__ = "app_rating_event"
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"), nullable=False, index=True)
-    message_id = db.Column(db.Integer, db.ForeignKey("app_message.id"), nullable=False)
+    message_id = db.Column(
+        db.Integer,
+        db.ForeignKey("app_message.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    msg_index = db.Column(db.Integer, nullable=False, index=True)
     skill = db.Column(db.String(20), nullable=False)
     rating_before = db.Column(db.Float, nullable=False)
     rating_after = db.Column(db.Float, nullable=False)
     observed_level = db.Column(db.String(2), nullable=False)
     confidence = db.Column(db.Float, nullable=False)
     weight = db.Column(db.Float, nullable=False)
+    mode = db.Column(db.String(20), nullable=False, default="baseline")
+    word_count = db.Column(db.Integer, nullable=True)
+    error_count = db.Column(db.Integer, nullable=True)
+    r_llm = db.Column(db.Float, nullable=True)
+    c_llm = db.Column(db.Float, nullable=True)
+    c_eff = db.Column(db.Float, nullable=True)
+    r_density = db.Column(db.Float, nullable=True)
+    r_obs = db.Column(db.Float, nullable=True)
+    gain = db.Column(db.Float, nullable=True)
+    outlier_flag = db.Column(db.SmallInteger, nullable=False, default=0)
+    skipped = db.Column(db.Boolean, nullable=False, default=False)
     ts = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class LevelChange(db.Model):
+    __tablename__ = "app_level_change"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False, index=True)
+    skill = db.Column(db.String(20), nullable=False)
+    label = db.Column(db.String(2), nullable=False)
+    rating_before = db.Column(db.Float, nullable=False)
+    rating_after = db.Column(db.Float, nullable=False)
+    evidence = db.Column(db.JSON, nullable=False)
+    explanation = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 class ErrorLog(db.Model):
@@ -75,7 +180,11 @@ class ErrorLog(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"), nullable=False, index=True)
-    message_id = db.Column(db.Integer, db.ForeignKey("app_message.id"), nullable=True)
+    message_id = db.Column(
+        db.Integer,
+        db.ForeignKey("app_message.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     topic = db.Column(db.String(80), nullable=False)
     error_type = db.Column(db.String(30), nullable=False)
     original = db.Column(db.Text, nullable=False)
@@ -93,6 +202,12 @@ class ApiMetric(db.Model):
     tokens_in = db.Column(db.Integer, nullable=True)
     tokens_out = db.Column(db.Integer, nullable=True)
     est_cost_usd = db.Column(db.Float, nullable=True)
+    provider = db.Column(db.String(30), nullable=True)
+    model = db.Column(db.String(120), nullable=True)
+    status = db.Column(db.String(20), nullable=False, default="success")
+    retry_count = db.Column(db.Integer, nullable=False, default=0)
+    fallback_used = db.Column(db.Boolean, nullable=False, default=False)
+    reasoning_tokens = db.Column(db.Integer, nullable=True)
     ts = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
 
 

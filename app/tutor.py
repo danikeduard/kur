@@ -3,7 +3,8 @@
 import time
 from typing import Any
 
-from .models import ApiMetric, ErrorLog, Message, SkillRating
+from .models import ErrorLog, Message, SkillRating
+from .providers import call_with_fallback, response_usage, reasoning_usage
 from .rating import rating_to_level
 
 STYLE_GUIDE = {
@@ -16,31 +17,53 @@ STYLE_GUIDE = {
 }
 
 
-def build_system_prompt(user_id: int, db: Any) -> str:
-    """Build a prompt from current ratings and recent weak topics."""
-    ratings = {row.skill: rating_to_level(row.rating) for row in db.session.scalars(db.select(SkillRating).filter_by(user_id=user_id))}
-    errors = db.session.scalars(
-        db.select(ErrorLog.topic).filter_by(user_id=user_id).order_by(ErrorLog.ts.desc()).limit(5)
-    ).all()
+def build_system_prompt(ratings: dict[str, str], errors: list[str], settings: dict, plan: dict | None = None) -> str:
+    """Build a prompt from preloaded request data."""
     overall = ratings.get("writing", "B1")
     style = STYLE_GUIDE[overall]
     topics = ", ".join(dict.fromkeys(errors)) or "none recorded yet"
+    reply_length = settings.get("reply_length", "balanced")
+    use_emojis = settings.get("use_emojis", True)
+    length_limits = {"concise": "under 80 words", "balanced": "under 160 words", "detailed": "under 260 words"}
+    emoji_rule = "Use occasional emojis." if use_emojis else "Do not use emojis."
+    plan = plan or {
+        "target_skill": None,
+        "target_topic": None,
+        "action": "diagnostic_conversation",
+        "difficulty": overall,
+    }
     return f"""You are a friendly English tutor. Skill levels: {ratings}. {style}
+Reply in English, and keep learner examples and target-language exercises in English.
 Weak topics to revisit: {topics}.
+Learning plan: target skill={plan["target_skill"] or "all"}, target topic={plan["target_topic"] or "none"},
+action={plan["action"]}, difficulty={plan["difficulty"]}.
+Follow this action when natural: a diagnostic conversation asks an open question, targeted diagnostic
+checks one uncertain topic, micro_exercise gives one short task, and spaced_review revisits one known
+weak topic. Do not expose internal scores or policy names to the learner.
 Use the Socratic method: hints before direct answers; give the direct answer after two failed hints
 or when explicitly requested. Correct at most two mistakes per reply, then continue naturally.
-Occasionally give a short exercise about a weak topic. Use a few emojis, and stay under 120 words
-for A1-A2 or 200 words for other levels unless asked."""
+Occasionally give a short exercise about a weak topic. {emoji_rule} Keep the reply {length_limits[reply_length]}."""
 
 
-def tutor_reply(client: Any, model: str, user_id: int, content: str, history: list[Message], db: Any) -> str:
-    """Generate a tutor response using only the latest twelve stored messages."""
-    messages = [{"role": "system", "content": build_system_prompt(user_id, db)}]
-    messages.extend({"role": row.role, "content": row.content} for row in history[-12:])
+def tutor_reply(client: Any, model: str, content: str, history: list[dict], ratings: dict[str, str],
+                errors: list[str], settings: dict, plan: dict, max_tokens: int,
+                provider: str = "unknown", fallbacks: list[str] | None = None,
+                reasoning: dict[str, str] | None = None) -> dict:
+    """Generate a database-free tutor result."""
+    messages = [{"role": "system", "content": build_system_prompt(ratings, errors, settings, plan)}]
+    messages.extend({"role": row["role"], "content": row["content"]} for row in history[-12:])
     messages.append({"role": "user", "content": content})
     started = time.perf_counter()
-    response = client.chat.completions.create(model=model, temperature=0.4, messages=messages)
+    response, answered_model, fallback_used = call_with_fallback(
+        client, model, fallbacks or [],
+        {"temperature": 0.4, "max_tokens": max_tokens, "messages": messages, **(reasoning or {})}
+    )
     reply = response.choices[0].message.content
-    db.session.add(ApiMetric(user_id=user_id, kind="tutor", latency_ms=(time.perf_counter() - started) * 1000))
-    db.session.commit()
-    return reply
+    tokens_in, tokens_out = response_usage(response)
+    return {
+        "reply": reply, "latency_ms": (time.perf_counter() - started) * 1000,
+        "tokens_in": tokens_in, "tokens_out": tokens_out,
+        "reasoning_tokens": reasoning_usage(response), "model": answered_model,
+        "provider": provider, "status": "success", "retry_count": 0,
+        "fallback_used": fallback_used,
+    }

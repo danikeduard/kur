@@ -4,12 +4,32 @@ Ratings are on a 0-2000 scale with CEFR centres spaced by 200 points.
 """
 
 import re
+from dataclasses import dataclass
 
 LEVELS = ("A1", "A2", "B1", "B2", "C1", "C2")
 CENTERS = {"A1": 600.0, "A2": 800.0, "B1": 1000.0, "B2": 1200.0, "C1": 1400.0, "C2": 1600.0}
 ALPHA = 0.12
 MAX_STEP = 80.0
 SKILL_WEIGHTS = {"grammar": 0.4, "vocab": 0.3, "writing": 0.3}
+P0 = 250**2
+SIGMA2 = 250**2
+Q = 900
+KALMAN_MAX_STEP = 120
+LEN_FULL_WORDS = 12
+MIN_CONFIDENCE = 0.3
+OUTLIER_GAP = 400
+OUTLIER_CONF = 0.6
+OUTLIER_FACTOR = 0.5
+DENS_MIN_WORDS = 8
+DENS_LAMBDA = 0.3
+DENS_TABLE = [(15, 600), (10, 800), (6, 1000), (3, 1200), (1.5, 1400), (0, 1600)]
+
+
+@dataclass(frozen=True)
+class SkillState:
+    r: float
+    p: float
+    last_outlier_sign: int = 0
 
 
 def level_to_rating(level: str) -> float:
@@ -39,6 +59,65 @@ def initial_ratings(level: str) -> dict[str, float]:
     """Initialize all skills at the declared level centre."""
     center = level_to_rating(level)
     return {skill: center for skill in SKILL_WEIGHTS}
+
+
+def initial_states(level: str) -> dict[str, SkillState]:
+    center = level_to_rating(level)
+    return {skill: SkillState(center, P0, 0) for skill in SKILL_WEIGHTS}
+
+
+def effective_confidence(c_llm: float, words: int) -> float:
+    return c_llm * min(1.0, words / LEN_FULL_WORDS)
+
+
+def density_rating(errors: int, words: int) -> float:
+    density = 100.0 * errors / words
+    for lower_bound, rating in DENS_TABLE:
+        if density >= lower_bound:
+            return rating
+    return DENS_TABLE[-1][1]
+
+
+def blend_observation(r_llm: float, errors: int, words: int) -> tuple[float, float | None]:
+    if words < DENS_MIN_WORDS:
+        return r_llm, None
+    density = density_rating(errors, words)
+    return r_llm - DENS_LAMBDA * max(0.0, r_llm - density), density
+
+
+def kalman_update(state: SkillState, r_obs: float, c_eff: float) -> tuple[SkillState, dict]:
+    if c_eff < MIN_CONFIDENCE:
+        return state, {"skipped": True}
+    gap = r_obs - state.r
+    sign = (gap > 0) - (gap < 0)
+    suspicious = abs(gap) >= OUTLIER_GAP and c_eff < OUTLIER_CONF
+    confirmed = suspicious and state.last_outlier_sign == sign
+    factor = OUTLIER_FACTOR if suspicious and not confirmed else 1.0
+    measurement_variance = SIGMA2 / c_eff**2
+    gain = factor * state.p / (state.p + measurement_variance)
+    delta = max(-KALMAN_MAX_STEP, min(KALMAN_MAX_STEP, gain * gap))
+    new_p = min(P0, (1 - gain) * state.p + Q)
+    new_sign = sign if suspicious else 0
+    outlier_flag = 0 if not suspicious else (2 if confirmed else 1)
+    return SkillState(state.r + delta, new_p, new_sign), {
+        "skipped": False,
+        "gain": gain,
+        "delta": delta,
+        "outlier_flag": outlier_flag,
+    }
+
+
+def word_count(content: str) -> int:
+    return len(content.split())
+
+
+def error_count_for_skill(errors: list, skill: str) -> int:
+    grammar_types = {"grammar", "word_order", "preposition", "article"}
+    if skill == "grammar":
+        return sum(error.type in grammar_types for error in errors)
+    if skill == "vocab":
+        return sum(error.type == "vocab" for error in errors)
+    return len(errors)
 
 
 def is_valid_message(content: str) -> bool:

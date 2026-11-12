@@ -5,6 +5,10 @@ __pycache__/
 *.py[cod]
 instance/
 linguapath.db
+*.db
+*.db-wal
+*.db-shm
+backups/
 .coverage
 .neon
 node_modules/

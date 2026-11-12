@@ -1,0 +1,48 @@
+import { conversations } from "./api.js";
+import { closeMenu, openMenu } from "./menu.js";
+import { toast } from "./toast.js";
+
+export function setupSidebar(state, renderChat) {
+  const list = document.querySelector("#conversation-list");
+  let searchTimer;
+  async function load() {
+    try {
+      const data = await conversations.list(state.query || "", state.archived);
+      list.replaceChildren();
+      if (!data.items.length) {
+        const empty = document.createElement("p");
+        empty.className = "list-empty";
+        empty.textContent = state.query ? "No chats found" : "No conversations yet";
+        list.append(empty);
+        return;
+      }
+      let group;
+      data.items.forEach((item) => {
+        const elapsed = (Date.now() - new Date(item.updated_at).getTime()) / 86400000;
+        const label = item.pinned ? "Pinned" : elapsed < 1 ? "Today" : elapsed < 2 ? "Yesterday" : elapsed < 7 ? "Previous 7 days" : elapsed < 30 ? "Previous 30 days" : new Date(item.updated_at).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+        if (label !== group) { group = label; const heading = document.createElement("div"); heading.className = "list-heading"; heading.textContent = label; list.append(heading); }
+        const row = document.createElement("div");
+        row.className = `conversation-row${item.id === state.conversationId ? " active" : ""}`;
+        row.dataset.id = item.id;
+        const link = document.createElement("button");
+        link.className = "conversation-link"; link.type = "button"; link.textContent = item.title; link.title = item.title;
+        link.addEventListener("click", () => renderChat(item.id));
+        const menu = document.createElement("button");
+        menu.className = "conversation-menu"; menu.type = "button"; menu.setAttribute("aria-label", `Actions for ${item.title}`); menu.textContent = "•••";
+        menu.setAttribute("aria-haspopup", "menu");
+        menu.setAttribute("aria-expanded", "false");
+        menu.addEventListener("click", () => openConversationMenu(menu, item));
+        row.append(link, menu); list.append(row);
+      });
+    } catch (error) { toast(error.message); }
+  }
+  async function openConversationMenu(trigger, item) {
+    const menu = document.createElement("div"); menu.className = "row-menu";
+    const actions = [["Rename", async () => { const title = window.prompt("Chat name", item.title); if (title?.trim()) await conversations.update(item.id, { title: title.trim() }); }], ["Organize", async () => { const folder = window.prompt("Folder (optional)", item.folder || ""); const tags = window.prompt("Tags, comma separated", (item.tags || []).join(", ")); await conversations.update(item.id, { folder: folder?.trim() || null, tags: (tags || "").split(",").map((tag) => tag.trim()).filter(Boolean) }); }], ["Duplicate", async () => { const data = await conversations.duplicate(item.id); await renderChat(data.conversation.id); }], [item.pinned ? "Unpin" : "Pin", () => conversations.update(item.id, { pinned: !item.pinned })], [item.archived ? "Restore" : "Archive", () => conversations.update(item.id, { archived: !item.archived })], ["Export JSON", () => { window.location.href = conversations.exportUrl(item.id); }], ["Delete", () => conversations.remove(item.id)]];
+    actions.forEach(([label, action]) => { const button = document.createElement("button"); button.type = "button"; button.textContent = label; if (label === "Delete") button.className = "menu-danger"; button.addEventListener("click", async () => { closeMenu(false); await action(); await load(); }); menu.append(button); });
+    openMenu(trigger, menu, { scrollEl: list });
+  }
+  document.querySelector("#conversation-search").addEventListener("input", (event) => { window.clearTimeout(searchTimer); searchTimer = window.setTimeout(() => { state.query = event.target.value; load(); }, 250); });
+  document.querySelector("#archive-toggle").addEventListener("click", () => { state.archived = !state.archived; load(); });
+  return { load };
+}

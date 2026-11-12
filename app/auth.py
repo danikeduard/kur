@@ -8,7 +8,7 @@ from werkzeug.security import check_password_hash
 
 from .extensions import db, login_manager
 from .models import SkillRating, User
-from .rating import LEVELS, initial_ratings
+from .rating import LEVELS, initial_states
 
 auth_bp = Blueprint("auth", __name__)
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -37,8 +37,11 @@ def register():
         user.set_password(password)
         db.session.add(user)
         db.session.flush()
-        for skill, rating in initial_ratings(level).items():
-            db.session.add(SkillRating(user_id=user.id, skill=skill, rating=rating))
+        for skill, state in initial_states(level).items():
+            db.session.add(SkillRating(
+                user_id=user.id, skill=skill, rating=state.r,
+                variance=state.p, last_outlier_sign=state.last_outlier_sign,
+            ))
         db.session.commit()
         login_user(user)
         return redirect(url_for("main.chat"))
