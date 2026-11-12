@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { setupSidebar } from "./sidebar.js";
+import { setupSidebar, setupSidebarChrome } from "./sidebar.js";
 import { toast } from "./toast.js";
 
 const skills = ["grammar", "vocab", "writing"];
@@ -12,11 +12,11 @@ const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
 })[char]);
 
 function levelBand(value) {
-  if (value < 700) return "A1";
-  if (value < 900) return "A2";
-  if (value < 1100) return "B1";
-  if (value < 1300) return "B2";
-  if (value < 1500) return "C1";
+  if (value < 1750) return "A1";
+  if (value < 2250) return "A2";
+  if (value < 2750) return "B1";
+  if (value < 3250) return "B2";
+  if (value < 3750) return "C1";
   return "C2";
 }
 
@@ -25,7 +25,7 @@ const bandPlugin = {
   beforeDraw(chart) {
     const { ctx, chartArea: area, scales } = chart;
     if (!area || !scales.y) return;
-    const bounds = [0, 700, 900, 1100, 1300, 1500, 2000];
+    const bounds = [0, 1750, 2250, 2750, 3250, 3750, 5000];
     ctx.save();
     for (let index = 0; index < 6; index += 1) {
       const top = scales.y.getPixelForValue(bounds[index + 1]);
@@ -57,8 +57,8 @@ function chartCard(skill, data) {
   const points = data.points;
   const first = points[0]?.rating ?? data.start_rating;
   const last = points.at(-1)?.rating ?? data.start_rating;
-  const lowBand = Math.max(0, Math.floor(Math.min(first, last) / 200) * 200 - 200);
-  const highBand = Math.min(2000, Math.max(lowBand + 600, Math.ceil(Math.max(first, last) / 200) * 200 + 200));
+  const lowBand = Math.max(0, Math.floor(Math.min(first, last) / 500) * 500 - 500);
+  const highBand = Math.min(5000, Math.max(lowBand + 1500, Math.ceil(Math.max(first, last) / 500) * 500 + 500));
   const change = Math.round(last - first);
   card.innerHTML = `<div class="chart-card-head"><div><h2>${skill[0].toUpperCase() + skill.slice(1)}</h2><small>${data.label} · ${change >= 0 ? "+" : ""}${change} points</small></div><span class="level-badge">${data.label}</span></div>`;
   if (points.length === 0) {
@@ -93,7 +93,7 @@ function chartCard(skill, data) {
       maintainAspectRatio: false,
       interaction: { intersect: false, mode: "nearest" },
       scales: {
-        x: { type: "linear", title: { display: true, text: "Valid message number" }, ticks: { precision: 0 }, grid: { color: "rgba(155,155,155,.1)" } },
+        x: { type: "linear", ticks: { precision: 0 }, grid: { color: "rgba(155,155,155,.1)" } },
         y: { min: lowBand, max: highBand, grid: { color: "rgba(155,155,155,.12)" } },
       },
       plugins: {
@@ -146,13 +146,11 @@ async function showChange(id) {
   } catch (reason) { toast(reason.message); }
 }
 
+setupSidebarChrome();
 setupSidebar(state, (id) => { window.location.href = `/chat/${id}`; }).load();
 document.querySelectorAll("[data-range]").forEach((button) => button.addEventListener("click", () => {
   document.querySelectorAll("[data-range]").forEach((item) => item.classList.toggle("active", item === button));
   load(button.dataset.range);
 }));
 document.querySelector("#progress-modal-close").addEventListener("click", () => { document.querySelector("#progress-modal").hidden = true; });
-document.querySelector("#sidebar-toggle").addEventListener("click", () => document.body.classList.toggle("sidebar-collapsed"));
-document.querySelector("#mobile-menu").addEventListener("click", () => document.body.classList.add("sidebar-open"));
-document.querySelector("#mobile-scrim").addEventListener("click", () => document.body.classList.remove("sidebar-open"));
 load("7d");

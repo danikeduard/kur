@@ -10,19 +10,7 @@
 </head>
 <body class="app-body progress-body">
   <div class="mobile-scrim" id="mobile-scrim" hidden></div>
-  <aside class="app-sidebar" id="sidebar" aria-label="Conversation sidebar">
-    <div class="sidebar-head">
-      <a class="app-logo" href="{{ url_for('main.chat') }}" aria-label="LinguaPath chat"><span class="logo-mark">L</span><span class="logo-name">LinguaPath</span></a>
-      <button class="icon-button" id="sidebar-toggle" type="button" aria-label="Collapse sidebar">‹</button>
-    </div>
-    <a class="new-chat-button" href="{{ url_for('main.chat') }}"><span>＋</span> New chat</a>
-    <label class="search-box" for="conversation-search"><span aria-hidden="true">⌕</span><input id="conversation-search" type="search" placeholder="Search chats" autocomplete="off"></label>
-    <div class="conversation-scroll" id="conversation-list" aria-live="polite"></div>
-    <button class="archive-link" id="archive-toggle" type="button">Archived <span>›</span></button>
-    <div class="sidebar-user">
-      <div class="user-card"><span class="avatar">{{ current_user.email[0]|upper }}</span><span class="user-meta"><strong>{{ current_user.email }}</strong><small>{{ current_user.self_level }} learner</small></span></div>
-    </div>
-  </aside>
+  {% include "_sidebar.html" %}
   <main class="app-main">
     <header class="topbar">
       <button class="icon-button mobile-menu" id="mobile-menu" type="button" aria-label="Open menu">☰</button>

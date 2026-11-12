@@ -64,14 +64,14 @@ def index():
 @main_bp.get("/chat")
 @login_required
 def chat():
-    return render_template("chat.html", conversation_id=None, preferred_name=_preferred_name())
+    return render_template("chat.html", conversation_id=None, preferred_name=_preferred_name(), sidebar_mode="chat")
 
 
 @main_bp.get("/chat/<int:conversation_id>")
 @login_required
 def conversation_page(conversation_id: int):
     conversation = _conversation_or_404(conversation_id)
-    return render_template("chat.html", conversation_id=conversation.id, preferred_name=_preferred_name())
+    return render_template("chat.html", conversation_id=conversation.id, preferred_name=_preferred_name(), sidebar_mode="chat")
 
 
 def _preferred_name() -> str:
@@ -105,6 +105,31 @@ def _conversation_json(conversation: Conversation) -> dict:
         "created_at": conversation.created_at.isoformat(),
         "updated_at": conversation.updated_at.isoformat(),
     }
+
+
+def _unique_conversation_title(user_id: int, title: str, exclude_id: int | None = None) -> str:
+    """Return a per-user unique conversation title, adding a numeric suffix if needed."""
+    base_title = title.strip()[:200]
+
+    def title_exists(candidate: str) -> bool:
+        conditions = [
+            Conversation.user_id == user_id,
+            db.func.lower(Conversation.title) == candidate.lower(),
+        ]
+        if exclude_id is not None:
+            conditions.append(Conversation.id != exclude_id)
+        return bool(db.session.scalar(db.select(db.exists().where(*conditions))))
+
+    if not title_exists(base_title):
+        return base_title
+
+    suffix_number = 2
+    while True:
+        suffix = f" ({suffix_number})"
+        candidate = f"{base_title[:200 - len(suffix)].rstrip()}{suffix}"
+        if not title_exists(candidate):
+            return candidate
+        suffix_number += 1
 
 
 @main_bp.get("/api/conversations")
@@ -149,7 +174,10 @@ def create_conversation():
     )
     if active_count >= 200:
         return jsonify(error="You can have at most 200 active conversations."), 409
-    conversation = Conversation(user_id=current_user.id)
+    conversation = Conversation(
+        user_id=current_user.id,
+        title=_unique_conversation_title(current_user.id, "New chat"),
+    )
     db.session.add(conversation)
     db.session.commit()
     return jsonify(conversation=_conversation_json(conversation)), 201
@@ -164,7 +192,9 @@ def update_conversation(conversation_id: int):
         title = payload["title"]
         if not isinstance(title, str) or not title.strip() or len(title.strip()) > 200:
             return jsonify(error="Title must contain 1 to 200 characters."), 400
-        conversation.title = title.strip()
+        conversation.title = _unique_conversation_title(
+            current_user.id, title, exclude_id=conversation.id
+        )
         conversation.title_auto = False
     for field in ("pinned", "archived"):
         if field in payload:
@@ -213,7 +243,7 @@ def duplicate_conversation(conversation_id: int):
         return jsonify(error="You can have at most 200 active conversations."), 409
     copy = Conversation(
         user_id=current_user.id,
-        title=f"{source.title} (copy)"[:200],
+        title=_unique_conversation_title(current_user.id, f"{source.title} (copy)"),
         title_auto=False,
     )
     db.session.add(copy)
@@ -421,7 +451,7 @@ def privacy():
 @main_bp.get("/progress")
 @login_required
 def progress():
-    return render_template("progress.html")
+    return render_template("progress.html", preferred_name=_preferred_name(), sidebar_mode="progress")
 
 
 @main_bp.get("/api/progress")
@@ -446,9 +476,9 @@ def progress_api():
         )
     ) or 0
     assessed_messages = db.session.scalar(
-        db.select(db.func.count(db.func.distinct(RatingEvent.message_id))).where(
-            RatingEvent.user_id == current_user.id,
-            RatingEvent.message_id.is_not(None),
+        db.select(db.func.count(db.func.distinct(ChatTurn.user_message_id))).where(
+            ChatTurn.user_id == current_user.id,
+            ChatTurn.evaluation_status.in_(("success", "low_confidence")),
         )
     ) or 0
     assessment_failures = db.session.scalar(
@@ -760,7 +790,18 @@ def api_chat():
     if sent_today >= current_user.daily_cap:
         return jsonify(error="Your daily message limit has been reached. Please try again tomorrow."), 429
 
-    valid = is_valid_message(content)
+    starter_prompts = {
+        "Tell me about yourself in English.",
+        "Describe your typical day and routine.",
+        "Help me practice useful everyday vocabulary.",
+        "Let's discuss an interesting news topic.",
+    }
+    skip_assessment = (
+        payload.get("skip_assessment") is True
+        and content.strip() in starter_prompts
+        and auto_title_pending
+    )
+    valid = not skip_assessment and is_valid_message(content)
     message = Message(
         user_id=current_user.id,
         conversation_id=conversation.id if conversation else None,
@@ -903,7 +944,9 @@ def api_chat():
                 current_app.logger.warning("Conversation title generation failed type=%s", type(error).__name__)
                 generated_title = _fallback_conversation_title(content)
             if conversation.title_auto:
-                conversation.title = generated_title
+                conversation.title = _unique_conversation_title(
+                    current_user.id, generated_title, exclude_id=conversation.id
+                )
                 conversation.title_auto = False
     if evaluation_result:
         evaluation_result.metric.user_id = current_user.id

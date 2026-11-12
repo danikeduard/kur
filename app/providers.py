@@ -49,7 +49,8 @@ class DemoClient:
         self.chat = type("Chat", (), {"completions": type("Completions", (), {"create": self.create})()})()
 
     def create(self, **kwargs: Any) -> _DemoResponse:
-        if kwargs.get("response_format", {}).get("type") == "json_object":
+        response_type = kwargs.get("response_format", {}).get("type")
+        if response_type in {"json_object", "json_schema"}:
             content = (
                 '{"is_english": true, '
                 '"skills": {"grammar": {"level": "B1", "confidence": 0.65}, '

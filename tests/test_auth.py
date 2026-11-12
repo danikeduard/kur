@@ -18,7 +18,7 @@ def test_register_initializes_account_and_ratings(client, app):
         assert user is not None
         ratings = db.session.scalars(db.select(SkillRating).filter_by(user_id=user.id)).all()
         assert {rating.skill for rating in ratings} == {"grammar", "vocab", "writing"}
-        assert {rating.rating for rating in ratings} == {1000.0}
+        assert {rating.rating for rating in ratings} == {2500.0}
 
 
 def test_login_rejects_bad_credentials(client):

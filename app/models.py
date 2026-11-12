@@ -66,7 +66,7 @@ class SkillRating(db.Model):
     skill = db.Column(db.String(20), primary_key=True)
     rating = db.Column(db.Float, nullable=False)
     display_level = db.Column(db.String(2), nullable=True)
-    variance = db.Column(db.Float, nullable=False, default=62500.0)
+    variance = db.Column(db.Float, nullable=False, default=390625.0)
     last_outlier_sign = db.Column(db.SmallInteger, nullable=False, default=0)
     n_updates = db.Column(db.Integer, default=0, nullable=False)
     updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)

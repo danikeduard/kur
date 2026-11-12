@@ -72,6 +72,18 @@ def test_demo_mode_works_without_provider_key(client, app):
         assert metric.tokens_out == 40
 
 
+def test_demo_mode_assesses_models_using_strict_json_schema(client, app):
+    client.post("/register", data={"email": "demo-schema@example.com", "password": "password123", "level": "A2"})
+    app.config["DEMO_MODE"] = True
+    app.config["LLM_MODEL_EVALUATOR"] = "openai/gpt-oss-120b"
+
+    response = client.post("/api/chat", json={"content": "I enjoy learning English every day."})
+
+    assert response.status_code == 200
+    assert response.json["assessment_status"] == "success"
+    assert client.get("/api/progress").json["user"]["assessed_messages"] == 1
+
+
 def test_tutor_failure_marks_turn_failed(client, app, monkeypatch):
     client.post("/register", data={"email": "failure@example.com", "password": "password123", "level": "B1"})
 

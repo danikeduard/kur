@@ -56,7 +56,7 @@ def test_text_messages_adapt_persisted_english_level(client, app, monkeypatch):
             db.select(SkillRating).where(SkillRating.user_id == 1).order_by(SkillRating.skill)
         ).all()
         assert {row.display_level for row in ratings} == {"B1"}
-        assert all(row.rating > 900 for row in ratings)
+        assert all(row.rating > 2000 for row in ratings)
         level_change = db.session.scalar(db.select(LevelChange).where(LevelChange.skill == "grammar"))
         assert level_change.evidence["display_level_before"] == "A2"
 

@@ -1,28 +1,29 @@
 """Pure adaptive CEFR rating functions.
 
-Ratings are on a 0-2000 scale with CEFR centres spaced by 200 points.
+Ratings use a 2.5x expanded scale (0-5000) with CEFR centres spaced by 500.
 """
 
 import re
 from dataclasses import dataclass
 
 LEVELS = ("A1", "A2", "B1", "B2", "C1", "C2")
-CENTERS = {"A1": 600.0, "A2": 800.0, "B1": 1000.0, "B2": 1200.0, "C1": 1400.0, "C2": 1600.0}
-ALPHA = 0.12
+SCALE_FACTOR = 2.5
+CENTERS = {"A1": 1500.0, "A2": 2000.0, "B1": 2500.0, "B2": 3000.0, "C1": 3500.0, "C2": 4000.0}
+ALPHA = 0.12 / SCALE_FACTOR
 MAX_STEP = 80.0
 SKILL_WEIGHTS = {"grammar": 0.4, "vocab": 0.3, "writing": 0.3}
-P0 = 250**2
-SIGMA2 = 250**2
-Q = 900
+P0 = (250 * SCALE_FACTOR) ** 2
+SIGMA2 = (250 * SCALE_FACTOR) ** 2
+Q = 900 * SCALE_FACTOR**2
 KALMAN_MAX_STEP = 120
 LEN_FULL_WORDS = 12
 MIN_CONFIDENCE = 0.3
-OUTLIER_GAP = 400
+OUTLIER_GAP = 1000
 OUTLIER_CONF = 0.6
 OUTLIER_FACTOR = 0.5
 DENS_MIN_WORDS = 8
 DENS_LAMBDA = 0.3
-DENS_TABLE = [(15, 600), (10, 800), (6, 1000), (3, 1200), (1.5, 1400), (0, 1600)]
+DENS_TABLE = [(15, 1500), (10, 2000), (6, 2500), (3, 3000), (1.5, 3500), (0, 4000)]
 
 
 @dataclass(frozen=True)
@@ -42,15 +43,15 @@ def level_to_rating(level: str) -> float:
 
 def rating_to_level(rating: float) -> str:
     """Return the label for a rating using the specified boundaries."""
-    if rating < 700:
+    if rating < 1750:
         return "A1"
-    if rating < 900:
+    if rating < 2250:
         return "A2"
-    if rating < 1100:
+    if rating < 2750:
         return "B1"
-    if rating < 1300:
+    if rating < 3250:
         return "B2"
-    if rating < 1500:
+    if rating < 3750:
         return "C1"
     return "C2"
 
@@ -95,7 +96,7 @@ def kalman_update(state: SkillState, r_obs: float, c_eff: float) -> tuple[SkillS
     factor = OUTLIER_FACTOR if suspicious and not confirmed else 1.0
     measurement_variance = SIGMA2 / c_eff**2
     gain = factor * state.p / (state.p + measurement_variance)
-    delta = max(-KALMAN_MAX_STEP, min(KALMAN_MAX_STEP, gain * gap))
+    delta = max(-KALMAN_MAX_STEP, min(KALMAN_MAX_STEP, gain * gap / SCALE_FACTOR))
     new_p = min(P0, (1 - gain) * state.p + Q)
     new_sign = sign if suspicious else 0
     outlier_flag = 0 if not suspicious else (2 if confirmed else 1)
@@ -152,10 +153,10 @@ def displayed_level(rating: float, previous_level: str | None) -> str:
     if previous_level is None or candidate == previous_level:
         return candidate
     if LEVELS.index(candidate) > LEVELS.index(previous_level):
-        boundary = level_to_rating(candidate) - 100
-        return candidate if rating >= boundary + 25 else previous_level
-    boundary = level_to_rating(previous_level) - 100
-    return candidate if rating <= boundary - 25 else previous_level
+        boundary = level_to_rating(candidate) - 250
+        return candidate if rating >= boundary + 62.5 else previous_level
+    boundary = level_to_rating(previous_level) - 250
+    return candidate if rating <= boundary - 62.5 else previous_level
 
 
 def overall_rating(ratings: dict[str, float]) -> float:
