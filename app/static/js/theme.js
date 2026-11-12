@@ -6,4 +6,3 @@ function apply(theme) {
 }
 apply(current);
 export function setTheme(theme) { current = theme; localStorage.setItem("linguapath-theme", theme); apply(theme); }
-export function getTheme() { return current; }

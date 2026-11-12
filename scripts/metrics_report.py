@@ -1,7 +1,7 @@
 """Print aggregate API metrics from the configured database."""
 
-import statistics
 import argparse
+import statistics
 import sys
 from pathlib import Path
 

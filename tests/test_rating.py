@@ -2,7 +2,6 @@ import pytest
 
 from app.rating import (
     displayed_level,
-    initial_ratings,
     is_valid_message,
     level_to_rating,
     overall_rating,
@@ -12,7 +11,6 @@ from app.rating import (
 
 
 def test_initialization_and_mapping_boundaries():
-    assert initial_ratings("C1") == {"grammar": 3500.0, "vocab": 3500.0, "writing": 3500.0}
     assert level_to_rating("a2") == 2000
     assert rating_to_level(1749.99) == "A1"
     assert rating_to_level(1750) == "A2"

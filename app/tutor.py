@@ -3,9 +3,7 @@
 import time
 from typing import Any
 
-from .models import ErrorLog, Message, SkillRating
-from .providers import call_with_fallback, response_usage, reasoning_usage
-from .rating import rating_to_level
+from .providers import call_with_fallback, reasoning_usage, response_usage
 
 STYLE_GUIDE = {
     "A1": "Use very short sentences, common words, and one idea at a time.",

@@ -56,12 +56,6 @@ def rating_to_level(rating: float) -> str:
     return "C2"
 
 
-def initial_ratings(level: str) -> dict[str, float]:
-    """Initialize all skills at the declared level centre."""
-    center = level_to_rating(level)
-    return {skill: center for skill in SKILL_WEIGHTS}
-
-
 def initial_states(level: str) -> dict[str, SkillState]:
     center = level_to_rating(level)
     return {skill: SkillState(center, P0, 0) for skill in SKILL_WEIGHTS}

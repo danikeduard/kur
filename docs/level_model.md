@@ -1,8 +1,11 @@
 # Adaptive level model
 
-The learner has one state per skill: `(R, P, last_outlier_sign)`. CEFR centres
-are A1=600, A2=800, B1=1000, B2=1200, C1=1400, and C2=1600. The setting
-`RATING_MODE` selects `kalman` (the default) or the unchanged `baseline`.
+The learner has one state per skill: `(R, P, last_outlier_sign)`. Ratings use
+an expanded 2.5x scale: CEFR centres are A1=1500, A2=2000, B1=2500, B2=3000,
+C1=3500, and C2=4000. Level boundaries are 1750, 2250, 2750, 3250, and 3750.
+The rating movement per message stays on the old scale so reaching a comparable
+level requires roughly 2.5x as much evidence. `RATING_MODE` selects `kalman`
+(the default) or `baseline`.
 
 ## Formulas
 
@@ -13,7 +16,7 @@ internal apostrophe, matching message validation) and evaluator confidence
 **3.1** `c_eff = c_llm * min(1, W / 12)`
 
 For `E` skill-specific errors, density is `d = 100E/W`. The first matching
-threshold in `[(15,600),(10,800),(6,1000),(3,1200),(1.5,1400),(0,1600)]`
+threshold in `[(15,1500),(10,2000),(6,2500),(3,3000),(1.5,3500),(0,4000)]`
 produces `R_density`.
 
 **3.2** `R_density = table(d)`
@@ -24,36 +27,36 @@ The density signal is ignored below eight words and can only lower an
 observation. Grammar and vocabulary density use only their matching error
 types. Writing is assessed for organization and cohesion, so grammar,
 vocabulary, and spelling errors do not also lower its density score. Kalman
-state starts with `P0 = 250^2`; process noise is `Q=900`.
+state starts with `P0 = 625^2`; process noise is `Q=5625`.
 
 **3.4** `R_gap = R_obs - R`
 
-**3.5** `R_meas = 250^2 / c_eff^2`
+**3.5** `R_meas = 625^2 / c_eff^2`
 
 **3.6** `K = f P / (P + R_meas)`
 
-Here `f=0.5` for the first suspicious outlier (`|R_gap| >= 400` and
+Here `f=0.5` for the first suspicious outlier (`|R_gap| >= 1000` and
 `c_eff < 0.6`), otherwise `f=1`. A second suspicious observation in the same
 direction is confirmed and uses the full factor.
 
-**3.7** `R_new = R + clamp(K * R_gap, -120, 120)`
+**3.7** `R_new = R + clamp(K * R_gap / 2.5, -120, 120)`
 
-**3.8** `P_new = min(P0, (1-K)P + 900)`
+**3.8** `P_new = min(P0, (1-K)P + 5625)`
 
 **3.9** `last_outlier_sign = sign(R_gap)` for suspicious observations, or zero
 for normal observations. Updates with `c_eff < 0.3` are skipped.
 
-The baseline remains `delta = clamp(0.12 * w * c * (R_llm - R), -80, 80)`,
+The baseline is `delta = clamp(0.048 * w * c * (R_llm - R), -80, 80)`,
 where `w=2` for the first five valid messages and `w=1` thereafter. Displayed
-skill labels retain 25-point hysteresis across messages and are stored with
+skill labels retain 62.5-point hysteresis across messages and are stored with
 rating events. Overall ratings retain weights 0.4/0.3/0.3.
 
 ## Worked example
 
-Starting at C1 (`R=1400`, `P=62500`), an A2 observation (`R_llm=800`) with
+Starting at C1 (`R=3500`, `P=390625`), an A2 observation (`R_llm=2000`) with
 14 words and confidence 0.8 has `c_eff=0.8`. With no errors, density does not
 lower the observation. The successive Kalman ratings are approximately
-`1280, 1160, 1078, 1025, 987, 959, 937` (the first two are limited by the
+`3380, 3260, 3178, 3125, 3087, 3059, 3037` (the first two are limited by the
 120-point step cap).
 
 ## Rationale

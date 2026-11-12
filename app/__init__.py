@@ -4,8 +4,8 @@ import logging
 import os
 from pathlib import Path
 
-from flask import Flask
 from dotenv import dotenv_values, load_dotenv
+from flask import Flask
 from groq import APIError
 
 from .extensions import csrf, db, limiter, login_manager, migrate

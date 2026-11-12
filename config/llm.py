@@ -1,7 +1,6 @@
 """Single source of truth for LLM role configuration."""
 
 import logging
-import os
 from typing import Any
 
 from flask import current_app
@@ -41,8 +40,3 @@ def reasoning_options(config: Any) -> dict[str, str]:
 def log_effective_models() -> None:
     for role in ROLES:
         logger.info("effective LLM model role=%s model=%s max_tokens=%s", role, get_model(role), get_max_tokens(role))
-
-
-def usage_details(response: Any) -> int | None:
-    details = getattr(getattr(response, "usage", None), "completion_tokens_details", None)
-    return getattr(details, "reasoning_tokens", None) if details is not None else None

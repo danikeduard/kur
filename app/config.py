@@ -37,9 +37,6 @@ class Config:
     ADMIN_EMAILS: ClassVar[set[str]] = {
         email.strip().lower() for email in os.environ.get("ADMIN_EMAILS", "").split(",") if email.strip()
     }
-    ALPHA = 0.12
-    MAX_STEP = 80.0
-    EVALUATOR_RETRY_COUNT = 1
     GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
     RATING_MODE = os.environ.get("RATING_MODE", "kalman")
     DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() == "true"

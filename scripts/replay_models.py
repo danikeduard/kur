@@ -12,6 +12,7 @@ from app import create_app
 from app.extensions import db
 from app.models import RatingEvent, User
 from app.rating import (
+    P0,
     SkillState,
     blend_observation,
     effective_confidence,
@@ -29,7 +30,7 @@ def replay(events, model):
     for event in events:
         key = (event.user_id, event.skill)
         if key not in states:
-            states[key] = SkillState(event.rating_before, 62500.0, 0)
+            states[key] = SkillState(event.rating_before, P0, 0)
         state = states[key]
         previous = rating_to_level(state.r)
         if model == "baseline":
