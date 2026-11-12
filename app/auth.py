@@ -2,16 +2,25 @@
 
 import re
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import (
+    Blueprint,
+    flash,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 from flask_login import current_user, login_required, login_user, logout_user
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
-from .extensions import db, login_manager
+from .extensions import db, limiter, login_manager
 from .models import SkillRating, User
 from .rating import LEVELS, initial_states
 
 auth_bp = Blueprint("auth", __name__)
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+DUMMY_PASSWORD_HASH = generate_password_hash("linguapath-invalid-account-dummy-password")
 
 
 @login_manager.user_loader
@@ -20,6 +29,7 @@ def load_user(user_id: str):
 
 
 @auth_bp.route("/register", methods=["GET", "POST"])
+@limiter.limit("5 per hour", methods=["POST"])
 def register():
     if current_user.is_authenticated:
         return redirect(url_for("main.chat"))
@@ -27,13 +37,13 @@ def register():
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
         level = request.form.get("level", "").upper()
-        if not EMAIL_RE.match(email) or len(password) < 8 or level not in LEVELS:
+        if not EMAIL_RE.match(email) or len(email) > 320 or not 8 <= len(password) <= 1024 or level not in LEVELS:
             flash("Use a valid email, an 8-character password, and choose a CEFR level.", "error")
             return render_template("register.html", levels=LEVELS)
         if db.session.scalar(db.select(User).filter_by(email=email)):
-            flash("An account with that email already exists.", "error")
+            flash("If this email can be registered, you can continue with the selected level.", "info")
             return render_template("register.html", levels=LEVELS)
-        user = User(email=email, self_level=level, is_admin=email in __import__("flask").current_app.config["ADMIN_EMAILS"])
+        user = User(email=email, self_level=level)
         user.set_password(password)
         db.session.add(user)
         db.session.flush()
@@ -43,16 +53,23 @@ def register():
                 variance=state.p, last_outlier_sign=state.last_outlier_sign,
             ))
         db.session.commit()
+        session.clear()
         login_user(user)
         return redirect(url_for("main.chat"))
     return render_template("register.html", levels=LEVELS)
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
+@limiter.limit("10 per minute", methods=["POST"])
 def login():
     if request.method == "POST":
-        user = db.session.scalar(db.select(User).filter_by(email=request.form.get("email", "").strip().lower()))
-        if user and check_password_hash(user.password_hash, request.form.get("password", "")):
+        email = request.form.get("email", "").strip().lower()[:320]
+        password = request.form.get("password", "")
+        user = db.session.scalar(db.select(User).filter_by(email=email))
+        password_hash = user.password_hash if user else DUMMY_PASSWORD_HASH
+        password_matches = check_password_hash(password_hash, password[:1024])
+        if user and password_matches:
+            session.clear()
             login_user(user, remember=True)
             return redirect(url_for("main.chat"))
         flash("Invalid email or password.", "error")

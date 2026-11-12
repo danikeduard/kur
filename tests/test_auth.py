@@ -71,3 +71,26 @@ def test_public_pages_load_the_stylesheet(client):
     assert stylesheet.status_code == 200
     assert b".site-header" in stylesheet.data
     assert b".hero" in stylesheet.data
+
+
+def test_registration_does_not_grant_admin_and_cli_can_promote(client, app):
+    app.config["ADMIN_EMAILS"] = {"admin@example.com"}
+    client.post("/register", data={"email": "admin@example.com", "password": "password123", "level": "B1"})
+    with app.app_context():
+        user = db.session.scalar(db.select(User).filter_by(email="admin@example.com"))
+        assert user.is_admin is False
+
+    result = app.test_cli_runner().invoke(args=["make-admin"], input="admin@example.com\n")
+
+    assert result.exit_code == 0
+    with app.app_context():
+        user = db.session.scalar(db.select(User).filter_by(email="admin@example.com"))
+        assert user.is_admin is True
+
+
+def test_public_response_includes_security_headers(client):
+    response = client.get("/")
+
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"

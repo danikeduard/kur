@@ -24,9 +24,15 @@ class Config:
         }
     else:
         SQLALCHEMY_ENGINE_OPTIONS: ClassVar[dict] = {"pool_pre_ping": True, "pool_recycle": 1800}
-    SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
+    APP_ENV = os.environ.get("APP_ENV", "development").lower()
+    SESSION_COOKIE_SECURE = os.environ.get(
+        "SESSION_COOKIE_SECURE", "true" if APP_ENV == "production" else "false"
+    ).lower() == "true"
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
+    REMEMBER_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
+    REMEMBER_COOKIE_SAMESITE = "Lax"
     PERMANENT_SESSION_LIFETIME = timedelta(days=7)
     WTF_CSRF_TIME_LIMIT = None
     LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "groq")
@@ -34,9 +40,9 @@ class Config:
     OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
     DAILY_MESSAGE_CAP = int(os.environ.get("DAILY_MESSAGE_CAP", "50"))
     RATE_LIMIT_CHAT = os.environ.get("RATE_LIMIT_CHAT", "30 per minute")
-    ADMIN_EMAILS: ClassVar[set[str]] = {
-        email.strip().lower() for email in os.environ.get("ADMIN_EMAILS", "").split(",") if email.strip()
-    }
+    TRUSTED_PROXY_COUNT = int(os.environ.get("TRUSTED_PROXY_COUNT", "0"))
+    RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
+    MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", str(64 * 1024)))
     GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
     RATING_MODE = os.environ.get("RATING_MODE", "kalman")
     DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() == "true"

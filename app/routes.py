@@ -728,6 +728,7 @@ def feedback():
 
 @main_bp.post("/account/delete")
 @login_required
+@limiter.limit("3 per hour")
 def delete_account():
     user_id = current_user.id
     for model in (

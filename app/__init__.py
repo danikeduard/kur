@@ -6,7 +6,9 @@ from pathlib import Path
 
 from dotenv import dotenv_values, load_dotenv
 from flask import Flask
+from flask.cli import with_appcontext
 from groq import APIError
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .extensions import csrf, db, limiter, login_manager, migrate
 from .i18n import install_i18n
@@ -19,7 +21,7 @@ def create_app(config_class=None) -> Flask:
         for name in ("LLM_MODEL", "LLM_MODEL_EVALUATOR", "LLM_MODEL_TITLE", "LLM_MODEL_EXPLAIN"):
             if name in os.environ and dotenv.get(name) and os.environ[name] != dotenv[name]:
                 logging.getLogger(__name__).warning("OS environment %s differs from %s", name, env_path.resolve())
-        load_dotenv(env_path, override=True)
+        load_dotenv(env_path, override=False)
     from .config import Config
 
     config_class = config_class or Config
@@ -40,6 +42,17 @@ def create_app(config_class=None) -> Flask:
     logging.getLogger(__name__).info("dotenv file=%s", env_path.resolve())
     if not app.config.get("SECRET_KEY"):
         raise RuntimeError("SECRET_KEY must be configured")
+    trusted_proxy_count = app.config.get("TRUSTED_PROXY_COUNT", 0)
+    if trusted_proxy_count < 0:
+        raise RuntimeError("TRUSTED_PROXY_COUNT cannot be negative")
+    if app.config.get("APP_ENV") == "production" and app.config.get("RATELIMIT_STORAGE_URI", "memory://") == "memory://":
+        raise RuntimeError("Production deployments must configure shared RATELIMIT_STORAGE_URI storage")
+    if trusted_proxy_count:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=trusted_proxy_count, x_proto=trusted_proxy_count)
+    if app.config.get("APP_ENV") == "production" and not getattr(config_class, "TESTING", False):
+        secret = app.config["SECRET_KEY"]
+        if len(secret) < 32 or secret == "replace-with-a-long-random-secret":
+            raise RuntimeError("Production SECRET_KEY must contain at least 32 non-placeholder characters")
 
     db.init_app(app)
     install_i18n(app)
@@ -68,6 +81,27 @@ def create_app(config_class=None) -> Flask:
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
 
+    @app.cli.command("make-admin")
+    @with_appcontext
+    def make_admin_command():
+        """Promote one existing user by email from a trusted CLI session."""
+        import click
+
+        email = click.prompt("Account email").strip().lower()
+        user = db.session.scalar(db.select(models.User).filter_by(email=email))
+        if user is None:
+            raise click.ClickException("No account exists with that email.")
+        user.is_admin = True
+        db.session.commit()
+        click.echo("Administrator access granted.")
+
+    @app.after_request
+    def add_security_headers(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        return response
+
     @app.get("/healthz")
     def healthz():
         return {"status": "ok"}
@@ -76,4 +110,4 @@ def create_app(config_class=None) -> Flask:
     return app
 
 
-from . import models  # noqa: F401
+from . import models
