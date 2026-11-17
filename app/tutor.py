@@ -28,7 +28,12 @@ def build_system_prompt(ratings: dict[str, str], errors: list[str], settings: di
         "balanced": "under 160 words",
         "detailed": "under 260 words",
     }
-    reply_limit = length_limits.get(settings.get("reply_length"), length_limits["balanced"])
+    requested_length = settings.get("reply_length")
+    reply_limit = (
+        length_limits.get(requested_length, length_limits["balanced"])
+        if isinstance(requested_length, str)
+        else length_limits["balanced"]
+    )
     emoji_rule = (
         "Include 1-3 fitting emojis naturally in every reply."
         if settings.get("use_emojis", True) else "Do not use emojis."

@@ -5,6 +5,7 @@ from .rating import (
     blend_observation,
     effective_confidence,
     error_count_for_skill,
+    has_level_evidence,
     initial_states,
     kalman_update,
     level_to_rating,
@@ -35,6 +36,19 @@ def update_skill(
     words = word_count(content)
     error_count = error_count_for_skill(errors, row.skill)
     r_llm = level_to_rating(observed_level)
+    current_level = row.display_level or rating_to_level(row.rating)
+    c_eff = effective_confidence(confidence, words)
+    if not has_level_evidence(current_level, observed_level, confidence, words, error_count):
+        before = row.rating
+        return {
+            "mode": mode, "word_count": words, "error_count": error_count,
+            "r_llm": r_llm, "c_llm": confidence, "c_eff": c_eff,
+            "r_density": None, "r_obs": r_llm, "gain": None,
+            "outlier_flag": 0, "skipped": True,
+            "weight": 2.0 if valid_index <= 5 else 1.0,
+            "before": before, "after": before,
+        }
+
     if mode == "baseline":
         before = row.rating
         after, weight = update_rating(before, observed_level, confidence, valid_index)
@@ -48,7 +62,6 @@ def update_skill(
         }
 
     ensure_rating_state(row, observed_level)
-    c_eff = effective_confidence(confidence, words)
     r_obs, density = blend_observation(r_llm, error_count, words)
     from .rating import SkillState
 

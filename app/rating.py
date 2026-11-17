@@ -18,6 +18,13 @@ Q = 900 * SCALE_FACTOR**2
 KALMAN_MAX_STEP = 120
 LEN_FULL_WORDS = 12
 MIN_CONFIDENCE = 0.3
+MIN_EVIDENCE_WORDS = 12
+MIN_EVIDENCE_CONFIDENCE = 0.55
+PROMOTION_MAX_ERROR_RATE = 0.05
+DOWNGRADE_MIN_ERRORS = 2
+DOWNGRADE_MIN_ERROR_RATE = 0.1
+LONG_SAMPLE_WORDS = 40
+LONG_SAMPLE_CONFIDENCE = 0.75
 OUTLIER_GAP = 1000
 OUTLIER_CONF = 0.6
 OUTLIER_FACTOR = 0.5
@@ -63,6 +70,34 @@ def initial_states(level: str) -> dict[str, SkillState]:
 
 def effective_confidence(c_llm: float, words: int) -> float:
     return c_llm * min(1.0, words / LEN_FULL_WORDS)
+
+
+def has_level_evidence(
+    current_level: str, observed_level: str, confidence: float, words: int, skill_errors: int
+) -> bool:
+    """Require a substantial, skill-relevant sample before changing a CEFR band."""
+    if words < MIN_EVIDENCE_WORDS or confidence < MIN_EVIDENCE_CONFIDENCE:
+        return False
+
+    current_index = LEVELS.index(current_level.upper())
+    observed_index = LEVELS.index(observed_level.upper())
+    if current_index == observed_index:
+        return False
+
+    error_rate = skill_errors / words
+    if observed_index > current_index:
+        # A few slips are acceptable in a longer sample, but a level-up needs
+        # broadly controlled use of the skill being rated.
+        return error_rate <= PROMOTION_MAX_ERROR_RATE
+
+    # A short, simple, error-free sentence does not prove that a learner's
+    # established level has fallen. Require repeated errors or a long sample.
+    repeated_errors = (
+        skill_errors >= DOWNGRADE_MIN_ERRORS
+        and error_rate >= DOWNGRADE_MIN_ERROR_RATE
+    )
+    long_sample = words >= LONG_SAMPLE_WORDS and confidence >= LONG_SAMPLE_CONFIDENCE
+    return repeated_errors or long_sample
 
 
 def density_rating(errors: int, words: int) -> float:
@@ -119,15 +154,16 @@ def error_count_for_skill(errors: list, skill: str) -> int:
 
 
 def is_valid_message(content: str) -> bool:
-    """Return whether text is eligible for rating updates."""
+    """Return whether text contains enough English evidence to attempt assessment.
+
+    This is an inexpensive pre-filter only; the evaluator decides whether the
+    learner's own text is English and whether it provides enough evidence.
+    """
     text = content.strip()
     words = re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", text)
-    if text.startswith("/") or len(words) < 4:
+    if re.match(r"^/[a-z][a-z0-9_-]*(?:\s|$)", text, flags=re.IGNORECASE):
         return False
-    letters = [char for char in text if char.isalpha()]
-    if not letters:
-        return False
-    return sum(char.isascii() for char in letters) / len(letters) >= 0.7
+    return len(words) >= 3
 
 
 def update_rating(rating: float, observed_level: str, confidence: float, valid_index: int) -> tuple[float, float]:

@@ -159,8 +159,9 @@ vocab
 writing (organisation and cohesion, not accuracy)
 - A1: isolated sentences. A2: sentences joined with basic connectors. B1: connected text with simple linkers. B2: clear, detailed text with varied linkers. C1: well-structured, controlled use of cohesive devices. C2: sophisticated, coherent and stylistically appropriate.
 
-Evidence ceiling: do not rate above what the text demonstrates. A short error-free text built from simple present/past sentences is A2-B1, not C1. Conversely, ambitious structures with a few slips still show the higher level (B2 text with two slips is B2, not B1).
-For "writing" with only one short sentence there is little evidence: give a level but low confidence.
+Evidence ceiling: do not rate above what the text demonstrates. A short error-free text built from simple present/past sentences is A2-B1, not C1. Correctness alone does not prove advanced range or complexity. Conversely, ambitious structures with a few slips still show the higher level when the skill is broadly controlled.
+For grammar, base the level on structures the learner actually used and controlled. For vocabulary, common words used correctly show basic control, not advanced range; higher levels require varied, precise or idiomatic choices used naturally in context. For writing, one short sentence gives little evidence of organization or cohesion.
+Do not infer ability from the tutor's wording, copied text, topic difficulty, or a single impressive word. Judge each skill separately: grammar errors affect grammar, word-choice errors affect vocabulary, and simple sentence structure alone is not a writing error. Set confidence from how clearly this sample demonstrates the assigned level, not just from how certain you feel about a guess. Keep confidence low when the text does not show a clear range for that skill.
 
 # CONFIDENCE (0..1, one decimal or two)
 - 0.8-0.95: 40+ words, varied structures, level clearly consistent across the text.
